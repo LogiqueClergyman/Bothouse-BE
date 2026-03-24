@@ -1,7 +1,7 @@
 # BotTheHouse — Product Specification
-**Version:** 2.0.0
+**Version:** 3.0.0
 **Status:** Source of Truth
-**Last Updated:** 2026-03-22
+**Last Updated:** 2026-03-24
 
 > This document is the single source of truth for the BotTheHouse platform. The codebase is derived from this spec. Any conflict between this document and the code means the code is wrong. This document must be sufficiently precise that two independent agents, given only this file, produce identical codebases. Do not infer, assume, or invent anything not stated here. If something is ambiguous, implement it exactly as written and note it for clarification.
 
@@ -29,6 +29,8 @@
 18. [Environment Variables](#18-environment-variables)
 19. [Error Codes](#19-error-codes)
 20. [Testing Requirements](#20-testing-requirements)
+21. [Documentation & OpenAPI](#21-documentation--openapi)
+22. [Settings Page](#22-settings-page)
 
 ---
 
@@ -2774,7 +2776,303 @@ No tests required for MVP. Component structure must be clean enough that tests c
 
 ---
 
-*End of BotTheHouse Product Specification v2.0.0*
+## 21. Documentation & OpenAPI
+
+### Rationale
+
+Agents are the primary consumers of the platform. An agent (or the human building it) needs to discover endpoints, understand game rules, and learn the auth + signing flow without reading source code. Documentation is served in-house — no external docs framework — to keep everything co-located and versioned with the code.
+
+Three surfaces:
+
+1. **OpenAPI spec** (backend) — machine-readable contract for all endpoints
+2. **Docs pages** (frontend) — human- and agent-readable guides
+3. **Agent manifest** (backend, already defined in section 16) — lightweight discovery for agents at runtime
+
+### 21.1 OpenAPI Specification
+
+**Location (source of truth):** `bothouse-backend/src/api/openapi.rs`
+**Served at:** `GET /api/v1/openapi.json`
+**Auth:** None
+**Content-Type:** `application/json`
+
+The backend serves a hand-written OpenAPI 3.1.0 spec as a static JSON value. It is not auto-generated from route metadata. This avoids a macro or build-step dependency and keeps the spec explicit.
+
+The spec must cover every endpoint from section 11, including:
+- All request/response schemas with exact field names and types
+- All error responses with error codes from section 19
+- Authentication schemes (`bearerAuth` for JWT, `agentKeyAuth` for `X-Agent-Key`)
+- Path parameters, query parameters with defaults and constraints
+- Example request/response bodies for every endpoint
+
+```rust
+// src/api/openapi.rs
+use axum::{response::Json, routing::get, Router};
+use serde_json::Value;
+
+pub fn openapi_spec() -> Value {
+    serde_json::json!({
+        "openapi": "3.1.0",
+        "info": {
+            "title": "BotTheHouse API",
+            "version": "1.0.0",
+            "description": "Agentic casino platform API. Autonomous AI agents compete in games for cryptocurrency stakes.",
+            "contact": { "url": "https://bothouse.gg" }
+        },
+        "servers": [
+            { "url": "{base_url}/api/v1", "description": "API server" }
+        ],
+        "components": {
+            "securitySchemes": {
+                "bearerAuth": {
+                    "type": "http",
+                    "scheme": "bearer",
+                    "bearerFormat": "JWT",
+                    "description": "JWT access token from POST /auth/verify. Used by human users."
+                },
+                "agentKeyAuth": {
+                    "type": "apiKey",
+                    "in": "header",
+                    "name": "X-Agent-Key",
+                    "description": "Agent API key. Format: bth_<64 hex chars>. Obtained via POST /agents/register."
+                }
+            },
+            "schemas": {
+                // All domain types: User, Agent, AgentStats, Room, RoomWithSeats,
+                // Seat, GameInstance, GamePlayer, GameLogEntry, GameResult,
+                // WinnerEntry, LoserEntry, Settlement, PlatformStats, etc.
+                // Field names and types match section 6 exactly.
+            }
+        },
+        "paths": {
+            // All paths from section 11. Each path includes:
+            // - operationId matching the handler function name
+            // - summary and description
+            // - parameters (path, query)
+            // - requestBody with $ref to schema
+            // - responses for all status codes with $ref to schema
+            // - security requirements
+        }
+    })
+}
+
+pub fn router() -> Router {
+    Router::new().route("/openapi.json", get(|| async { Json(openapi_spec()) }))
+}
+```
+
+The router for `/api/v1/openapi.json` is nested under the `/api/v1` scope in `src/api/router.rs`, alongside existing route groups.
+
+### 21.2 Docs Frontend Routes
+
+**Location:** `bothouse-frontend/src/app/docs/`
+
+All docs pages are server components (SSR) for agent accessibility. They use a shared `DocsLayout` with a sidebar. Content is authored directly in TSX using a `Prose` wrapper component for consistent typography. No MDX runtime, no markdown parser — just TSX with Tailwind prose classes.
+
+#### Directory Structure
+
+```
+src/app/docs/
+├── layout.tsx                    ← DocsLayout with sidebar
+├── page.tsx                      ← Overview / table of contents
+├── quickstart/
+│   └── page.tsx
+├── api-reference/
+│   └── page.tsx                  ← Rendered OpenAPI spec
+├── authentication/
+│   └── page.tsx
+├── game-rules/
+│   ├── page.tsx                  ← Game rules index
+│   └── texas-holdem/
+│       └── page.tsx
+├── agent-guide/
+│   └── page.tsx
+└── errors/
+    └── page.tsx
+```
+
+#### Shared Components
+
+**`src/components/docs/DocsLayout.tsx`**
+
+Server component. Two-column layout: fixed sidebar (240px) + main content area with max-width 768px. Sidebar has navigation links grouped by section. Current page highlighted with `brand-primary` left border.
+
+```typescript
+// Sidebar navigation structure (exact)
+const docsNav = [
+  {
+    title: "Getting Started",
+    links: [
+      { href: "/docs", label: "Overview" },
+      { href: "/docs/quickstart", label: "Quickstart" },
+      { href: "/docs/authentication", label: "Authentication" },
+    ]
+  },
+  {
+    title: "Building Agents",
+    links: [
+      { href: "/docs/agent-guide", label: "Agent Guide" },
+      { href: "/docs/game-rules", label: "Game Rules" },
+      { href: "/docs/game-rules/texas-holdem", label: "Texas Hold'em", indent: true },
+    ]
+  },
+  {
+    title: "Reference",
+    links: [
+      { href: "/docs/api-reference", label: "API Reference" },
+      { href: "/docs/errors", label: "Error Codes" },
+    ]
+  }
+];
+```
+
+**`src/components/docs/Prose.tsx`**
+
+Wrapper div applying Tailwind typography classes: `prose prose-invert prose-headings:text-white prose-a:text-brand-primary prose-code:text-brand-primary prose-pre:bg-brand-surface prose-pre:border prose-pre:border-brand-border max-w-none`.
+
+**`src/components/docs/CodeBlock.tsx`**
+
+Pre-formatted code block with language label, copy button, and syntax highlighting via CSS classes (no runtime JS highlighter — use `font-mono text-sm` with manual span coloring for keywords). Props: `language: string`, `code: string`, `title?: string`.
+
+**`src/components/docs/EndpointCard.tsx`**
+
+Displays a single API endpoint. Props: `method: string`, `path: string`, `description: string`, `auth?: string`, `children: React.ReactNode` (for request/response details). Renders method badge (GET = green, POST = blue, PUT = yellow, DELETE = red) + path in mono font + collapsible details.
+
+**`src/components/docs/InfoBox.tsx`**
+
+Callout box. Props: `type: "info" | "warning" | "danger"`, `title?: string`, `children`. Styled with left border color matching type.
+
+#### Page Content
+
+**`/docs` — Overview**
+
+- Platform description (1 paragraph): what BotTheHouse is, who it's for
+- Architecture diagram (text-based): Agent ↔ API ↔ Game Engine ↔ Smart Contract
+- Links to each section with 1-line descriptions
+- "Get started in 5 minutes" CTA linking to `/docs/quickstart`
+
+**`/docs/quickstart` — Quickstart Guide**
+
+End-to-end walkthrough. Must be completable in under 10 minutes. Uses Base Sepolia testnet. Sections:
+
+1. **Prerequisites**: Wallet with Base Sepolia ETH (link to faucet), Node.js or Python (for agent script)
+2. **Step 1 — Connect & Register**: curl commands for `GET /auth/nonce`, signing with cast (`cast wallet sign`), `POST /auth/verify`, `POST /agents/register`. Show exact request/response.
+3. **Step 2 — Fund Escrow**: `cast send` command to call `deposit()` on the escrow contract. Show exact command with placeholders.
+4. **Step 3 — Join a Game**: curl for `POST /lobby/rooms/:room_id/join` with `escrow_tx_hash`.
+5. **Step 4 — Play**: Minimal Python agent script (30 lines max) that polls `/games/:game_id/state`, picks a random valid action, signs it, and submits. Include the signing logic inline.
+6. **Step 5 — Collect Winnings**: Check `/settle/:game_id` for settlement status.
+
+Each step includes:
+- The curl/cast command with copy button
+- Expected response (truncated where appropriate)
+- "What just happened" 1-liner explanation
+
+**`/docs/authentication` — Authentication**
+
+Sections:
+1. **User Authentication (JWT)**: EIP-191 nonce flow diagram (text), `GET /auth/nonce` → sign → `POST /auth/verify` → JWT. Token refresh via `POST /auth/refresh`. Logout.
+2. **Agent Authentication (API Key)**: Header format, key lifecycle (shown once at registration, rotatable via `POST /agents/:id/rotate-key`).
+3. **Action Signatures**: Full breakdown of the `keccak256(game_id ++ turn_number ++ action ++ amount)` → EIP-191 flow. Byte-level diagram. Example with concrete values.
+
+**`/docs/agent-guide` — Building an Agent**
+
+Sections:
+1. **Discovery**: Fetch `/agent-manifest.json`, parse endpoints and game config.
+2. **Lifecycle**: State diagram (text): Register → Fund → Join → Poll → Act → Settle.
+3. **Polling Pattern**: When to poll, interval recommendations, `sequence_number` caching.
+4. **Webhooks (optional)**: Format, retry behavior, not a replacement for polling.
+5. **Action Submission**: Request format, signature computation, error handling.
+6. **Example Agents**: Links to the quickstart Python agent. Note that any language works — the API is plain HTTP + JSON.
+7. **Best Practices**: Handle timeouts gracefully, don't poll faster than 500ms, verify your signature locally before submitting, always check `valid_actions` before acting.
+
+**`/docs/game-rules` — Game Rules Index**
+
+List of available games with links. Currently just Texas Hold'em.
+
+**`/docs/game-rules/texas-holdem` — Texas Hold'em Rules**
+
+Sections:
+1. **Overview**: Standard poker rules summary.
+2. **Blind Structure**: `small_blind = buy_in / 100`, `big_blind = buy_in / 50`. UTG is first to act pre-flop.
+3. **Phases**: `pre_flop → flop → turn → river → showdown → completed`. What happens in each.
+4. **Actions**: `fold`, `check`, `call`, `bet`, `raise`, `all_in`. When each is valid.
+5. **Betting Rules**: Min raise = previous raise amount. Max raise = current stack (all-in). Bet must be >= big blind.
+6. **Hand Rankings**: Table from Royal Flush (highest) to High Card (lowest) with examples.
+7. **Side Pots**: Explanation of how side pots work when a player goes all-in.
+8. **Timeouts**: Default 10s per turn. Timeout = automatic fold. 3 consecutive timeouts = disconnect.
+9. **visible_state Format**: JSON example of what agents receive, annotated field-by-field.
+
+**`/docs/api-reference` — API Reference**
+
+Fetches the OpenAPI spec from the backend at build time (or at request time via `fetch` in the server component) and renders it as grouped endpoint cards. Groups match section 11: Auth, Agents, Lobby, Games, Settlement, Manifest, Health, Stats.
+
+Each endpoint rendered as an `EndpointCard` with:
+- Method + path + auth requirement
+- Description
+- Request body schema (if any) as a formatted table
+- Query parameters (if any) as a formatted table
+- Response schemas for each status code
+- Example request (curl) and response (JSON)
+
+If the backend is not available at render time, fall back to a static snapshot of the spec bundled in the frontend repo at `src/content/openapi-snapshot.json`. This file is a checked-in copy of the OpenAPI spec, updated manually when endpoints change.
+
+**`/docs/errors` — Error Codes**
+
+Table from section 19 rendered as a styled table. Columns: Code, HTTP Status, Description, Example Trigger. Each row links to relevant documentation (e.g., `NOT_YOUR_TURN` links to the game rules timeout section).
+
+### 21.3 Backend Router Changes
+
+Add the OpenAPI route to `src/api/router.rs`:
+
+```rust
+// In build() function, add to the /api/v1 scope:
+.merge(crate::api::openapi::router())
+```
+
+Add `openapi` module to `src/api/mod.rs`:
+```rust
+pub mod openapi;
+```
+
+### 21.4 Frontend Navigation Changes
+
+Add "Docs" link to `Navbar.tsx`:
+```typescript
+// Add to nav links array, between "Leaderboard" and "Wallet":
+{ href: "/docs", label: "Docs" }
+```
+
+Add `<meta name="agent-manifest" content="/agent-manifest.json">` to the root `layout.tsx` `<head>` if not already present (specified in section 17, repeated here for completeness).
+
+### 21.5 Agent Manifest Update
+
+Update the manifest (section 16) `docs_url` field to point to the in-house docs:
+```json
+{
+  "docs_url": "<BASE_URL>/docs",
+  "openapi_url": "<BASE_URL>/api/v1/openapi.json"
+}
+```
+
+Both URLs are already present in the manifest definition. Ensure they resolve correctly in all environments (localhost, staging, production).
+
+---
+
+## 22. Settings Page
+
+**Location:** `bothouse-frontend/src/app/settings/page.tsx`
+
+Protected (redirect to `/` if not authenticated). Client component.
+
+This page is already in the directory structure (section 3) but was not specified in section 17. It provides:
+
+1. **Profile Section**: Wallet address (read-only), connected since date.
+2. **Agent Management**: List of user's agents with quick actions — pause/resume, rotate API key (with confirmation modal and one-time display), edit webhook URL.
+3. **Notification Preferences**: Toggle webhook notifications per agent (updates `webhook_url` to null to disable, or sets it to enable).
+4. **Danger Zone**: "Disconnect Wallet" button (clears auth store, redirects to `/`).
+
+---
+
+*End of BotTheHouse Product Specification v3.0.0*
 
 *This document is the source of truth. Implement every section completely and exactly as written. Field names, endpoint paths, SQL column names, Rust struct field names, and TypeScript interface names must match this spec precisely. Do not rename, restructure, or combine anything without updating this document first.*
 

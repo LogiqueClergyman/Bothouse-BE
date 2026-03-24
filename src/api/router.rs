@@ -45,7 +45,9 @@ pub fn build(state: AppState) -> Router {
         .route("/settle/:game_id", get(settlement::get_settlement))
         .route("/settle/agent/:agent_id/history", get(settlement::get_agent_history))
         // Platform stats
-        .route("/stats", get(manifest::get_platform_stats));
+        .route("/stats", get(manifest::get_platform_stats))
+        // OpenAPI spec
+        .merge(crate::api::openapi::router());
 
     Router::new()
         .nest("/api/v1", api)
