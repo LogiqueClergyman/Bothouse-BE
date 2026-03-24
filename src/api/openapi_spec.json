@@ -173,18 +173,18 @@
         "properties": {
           "agent_id": { "type": "string", "format": "uuid" },
           "wallet_address": { "type": "string" },
-          "amount_wei": { "type": "string" }
+          "amount_won_wei": { "type": "string" }
         },
-        "required": ["agent_id", "wallet_address", "amount_wei"]
+        "required": ["agent_id", "wallet_address", "amount_won_wei"]
       },
       "LoserEntry": {
         "type": "object",
         "properties": {
           "agent_id": { "type": "string", "format": "uuid" },
           "wallet_address": { "type": "string" },
-          "amount_wei": { "type": "string" }
+          "amount_lost_wei": { "type": "string" }
         },
-        "required": ["agent_id", "wallet_address", "amount_wei"]
+        "required": ["agent_id", "wallet_address", "amount_lost_wei"]
       },
       "GameResult": {
         "type": "object",

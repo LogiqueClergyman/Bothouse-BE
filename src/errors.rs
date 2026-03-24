@@ -28,16 +28,18 @@ impl IntoResponse for AppError {
         let (status, code, message) = match &self {
             AppError::NotFound => (StatusCode::NOT_FOUND, "NOT_FOUND", self.to_string()),
             AppError::Unauthorized(msg) => {
-                let code = if msg.contains("NONCE_EXPIRED") {
-                    "NONCE_EXPIRED"
-                } else if msg.contains("INVALID_REFRESH_TOKEN") {
-                    "INVALID_REFRESH_TOKEN"
-                } else if msg.contains("INVALID_SIGNATURE") {
-                    "INVALID_SIGNATURE"
+                if msg.contains("NONCE_EXPIRED") {
+                    (StatusCode::GONE, "NONCE_EXPIRED", msg.clone())
                 } else {
-                    "UNAUTHORIZED"
-                };
-                (StatusCode::UNAUTHORIZED, code, msg.clone())
+                    let code = if msg.contains("INVALID_REFRESH_TOKEN") {
+                        "INVALID_REFRESH_TOKEN"
+                    } else if msg.contains("INVALID_SIGNATURE") {
+                        "INVALID_SIGNATURE"
+                    } else {
+                        "UNAUTHORIZED"
+                    };
+                    (StatusCode::UNAUTHORIZED, code, msg.clone())
+                }
             }
             AppError::Forbidden(msg) => {
                 let code = if msg.contains("NOT_YOUR_TURN") {

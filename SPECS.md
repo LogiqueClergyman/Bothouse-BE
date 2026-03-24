@@ -1,5 +1,5 @@
 # BotTheHouse — Product Specification
-**Version:** 3.0.0
+**Version:** 4.0.0
 **Status:** Source of Truth
 **Last Updated:** 2026-03-24
 
@@ -31,6 +31,7 @@
 20. [Testing Requirements](#20-testing-requirements)
 21. [Documentation & OpenAPI](#21-documentation--openapi)
 22. [Settings Page](#22-settings-page)
+23. [Agent SDK](#23-agent-sdk)
 
 ---
 
@@ -58,15 +59,16 @@ BotTheHouse is an agentic casino platform. Autonomous AI agents — funded and o
 
 ## 2. Deliverables
 
-Three deployable artifacts, each in its own subdirectory:
+Four deployable artifacts, each in its own subdirectory:
 
 | Directory | Type | Language/Framework |
 |---|---|---|
 | `bothouse-backend/` | HTTP API server | Rust + Axum |
 | `bothouse-frontend/` | Web application | TypeScript + Next.js 14 |
 | `bothouse-contracts/` | Smart contracts | Solidity 0.8.24 + Foundry |
+| `bothouse-agent-sdk/` | Agent SDK + Reference Agent | TypeScript + Node.js |
 
-Each directory is a self-contained project with its own dependency manifest (`Cargo.toml`, `package.json`, `package.json` respectively). There is no monorepo tooling. No shared packages. No symlinks between directories.
+Each directory is a self-contained project with its own dependency manifest (`Cargo.toml`, `package.json`, `package.json`, `package.json` respectively). There is no monorepo tooling. No shared packages. No symlinks between directories.
 
 ---
 
@@ -3072,7 +3074,1041 @@ This page is already in the directory structure (section 3) but was not specifie
 
 ---
 
-*End of BotTheHouse Product Specification v3.0.0*
+## 23. Agent SDK
+
+**Location:** `bothouse-agent-sdk/`
+**Language:** TypeScript (Node.js ≥ 18)
+**Package name:** `@bothouse/agent-sdk`
+**Published to:** npm (public)
+
+### 23.1 Purpose
+
+The Agent SDK is the primary interface for building autonomous agents that compete on BotTheHouse. It handles all protocol plumbing — polling, signing, state tracking, error recovery — so that agent builders focus exclusively on strategy.
+
+Without the SDK, an agent builder must: manually poll endpoints, compute keccak256 action signatures, manage EIP-191 signing, handle turn timeouts, track sequence numbers, and deal with every error code. The SDK reduces this to implementing a single method: `decide(state) → action`.
+
+### 23.2 Directory Structure
+
+```
+bothouse-agent-sdk/
+├── package.json
+├── tsconfig.json
+├── tsconfig.build.json
+├── .env.example
+├── README.md
+├── src/
+│   ├── index.ts                    ← Public API barrel export
+│   ├── client.ts                   ← BotTheHouseClient (HTTP + types)
+│   ├── agent.ts                    ← BaseAgent abstract class + runner
+│   ├── signer.ts                   ← Action signing (keccak256 + EIP-191)
+│   ├── poller.ts                   ← Smart polling loop with backoff
+│   ├── manifest.ts                 ← Manifest fetcher + parser
+│   ├── escrow.ts                   ← Escrow contract interaction (deposit, balance check)
+│   ├── logger.ts                   ← Structured logger (console, JSON modes)
+│   ├── errors.ts                   ← SDK error types
+│   └── types.ts                    ← All TypeScript types (mirrors backend exactly)
+├── examples/
+│   ├── random-agent/
+│   │   ├── index.ts                ← Minimal agent: random valid action
+│   │   └── README.md
+│   ├── claude-poker-agent/
+│   │   ├── index.ts                ← LLM-powered agent using Claude
+│   │   ├── prompts.ts              ← System + turn prompt templates
+│   │   └── README.md
+│   └── rule-based-agent/
+│       ├── index.ts                ← Hand-strength heuristic agent
+│       └── README.md
+└── test/
+    ├── client.test.ts
+    ├── signer.test.ts
+    ├── poller.test.ts
+    ├── agent.test.ts
+    └── escrow.test.ts
+```
+
+### 23.3 Technology Stack
+
+| Package | Version | Purpose |
+|---|---|---|
+| `viem` | 2 | Wallet management, signing, keccak256, contract interaction |
+| `@anthropic-ai/sdk` | ≥ 0.39 | Claude API (used only in claude-poker-agent example, not a core dependency) |
+| `vitest` | ≥ 2 | Testing |
+| `tsx` | ≥ 4 | Running TypeScript examples directly |
+| `dotenv` | ≥ 16 | Environment variable loading |
+
+`viem` is the only runtime dependency of the core SDK. `@anthropic-ai/sdk` is a `devDependency` / `peerDependency` used only by the Claude example agent.
+
+### 23.4 Types (`src/types.ts`)
+
+All types mirror the backend domain types exactly (same field names, same casing). These are the canonical TypeScript types for the platform — the frontend's `src/types/index.ts` was created first but the SDK types are authoritative for agent builders.
+
+```typescript
+// ─── Enums ───────────────────────────────────────────────────────────────────
+export type AgentStatus = "active" | "paused" | "suspended" | "deleted";
+export type RoomStatus = "open" | "starting" | "in_progress" | "completed" | "cancelled";
+export type GameStatus = "waiting" | "in_progress" | "completed" | "cancelled";
+export type PlayerStatus = "active" | "folded" | "all_in" | "busted" | "disconnected";
+export type SettlementStatus = "pending" | "submitted" | "confirmed" | "failed";
+export type GameAction = "fold" | "check" | "call" | "bet" | "raise" | "all_in";
+
+// ─── Domain Types ────────────────────────────────────────────────────────────
+export interface Agent {
+    agent_id: string;
+    user_id: string;
+    wallet_address: string;
+    name: string;
+    description: string | null;
+    webhook_url: string | null;
+    status: AgentStatus;
+    created_at: string;
+    updated_at: string;
+    last_seen_at: string | null;
+}
+
+export interface AgentStats {
+    agent_id: string;
+    game_type: string;
+    games_played: number;
+    games_won: number;
+    total_wagered_wei: string;
+    total_won_wei: string;
+    total_lost_wei: string;
+    net_profit_wei: string;
+    win_rate: number;
+    updated_at: string;
+}
+
+export interface Room {
+    room_id: string;
+    game_type: string;
+    game_version: string;
+    status: RoomStatus;
+    buy_in_wei: string;
+    max_players: number;
+    min_players: number;
+    created_at: string;
+    started_at: string | null;
+    completed_at: string | null;
+}
+
+export interface Seat {
+    seat_id: string;
+    room_id: string;
+    agent_id: string;
+    wallet_address: string;
+    seat_number: number;
+    joined_at: string;
+    escrow_tx_hash: string | null;
+    escrow_verified: boolean;
+}
+
+export interface RoomWithSeats extends Room {
+    seats: Seat[];
+}
+
+export interface GameInstance {
+    game_id: string;
+    room_id: string;
+    game_type: string;
+    game_version: string;
+    status: GameStatus;
+    sequence_number: number;
+    created_at: string;
+    started_at: string | null;
+    completed_at: string | null;
+}
+
+export interface GamePlayer {
+    game_id: string;
+    agent_id: string;
+    wallet_address: string;
+    seat_number: number;
+    stack_wei: string;
+    status: PlayerStatus;
+    consecutive_timeouts: number;
+}
+
+export interface GameLogEntry {
+    game_id: string;
+    sequence: number;
+    timestamp: string;
+    agent_id: string | null;
+    action: string;
+    amount_wei: string | null;
+    state_hash: string;
+}
+
+export interface WinnerEntry {
+    agent_id: string;
+    wallet_address: string;
+    amount_won_wei: string;
+}
+
+export interface LoserEntry {
+    agent_id: string;
+    wallet_address: string;
+    amount_lost_wei: string;
+}
+
+export interface GameResult {
+    game_id: string;
+    winners: WinnerEntry[];
+    losers: LoserEntry[];
+    rake_wei: string;
+    rake_rate_bps: number;
+    signed_result_hash: string;
+    created_at: string;
+}
+
+export interface Settlement {
+    settlement_id: string;
+    game_id: string;
+    status: SettlementStatus;
+    tx_hash: string | null;
+    block_number: number | null;
+    confirmed_at: string | null;
+    retry_count: number;
+    error_message: string | null;
+    created_at: string;
+    updated_at: string;
+}
+
+export interface PlatformStats {
+    total_agents: number;
+    active_agents_24h: number;
+    total_games: number;
+    games_in_progress: number;
+    total_volume_wei: string;
+    supported_games: Array<{
+        game_type: string;
+        display_name: string;
+        min_players: number;
+        max_players: number;
+        turn_timeout_ms: number;
+    }>;
+}
+
+// ─── Agent-Specific Views ────────────────────────────────────────────────────
+export interface AgentGameState {
+    game_id: string;
+    game_type: string;
+    status: GameStatus;
+    sequence_number: number;
+    your_turn: boolean;
+    turn_number: number;
+    turn_expires_at: string | null;
+    timeout_action: string;
+    visible_state: Record<string, unknown>;
+    valid_actions: GameAction[];
+    wallet: {
+        escrowed_wei: string;
+        at_stake_wei: string;
+    };
+}
+
+export interface GameLogResponse {
+    game_id: string;
+    log: GameLogEntry[];
+    result: GameResult | null;
+}
+
+// ─── Agent Manifest ──────────────────────────────────────────────────────────
+export interface AgentManifest {
+    manifest_version: string;
+    platform: string;
+    tagline: string;
+    base_url: string;
+    api_version: string;
+    auth: {
+        type: string;
+        header: string;
+        format: string;
+        obtain: Record<string, string>;
+        registration_page: string;
+    };
+    endpoints: Record<string, string>;
+    supported_games: Array<{
+        game_type: string;
+        display_name: string;
+        min_players: number;
+        max_players: number;
+        turn_timeout_ms: number;
+        timeout_action: string;
+        phases: string[];
+        valid_actions: string[];
+    }>;
+    blockchain: {
+        network: string;
+        chain_id: number;
+        rpc_url: string;
+        escrow_contract: {
+            address: string;
+            abi_url: string;
+            deposit_function: string;
+            note: string;
+        };
+    };
+    current_rake_bps: string;
+    polling: {
+        recommended_interval_ms: number;
+        minimum_interval_ms: number;
+    };
+    testnet: {
+        base_url: string;
+        chain_id: number;
+        rpc_url: string;
+    };
+    docs_url: string;
+    openapi_url: string;
+}
+
+// ─── SDK-Specific Types ──────────────────────────────────────────────────────
+export interface AgentAction {
+    action: GameAction;
+    amount_wei?: string;     // Required for "bet" and "raise"
+    reasoning?: string;      // Optional: logged for observability
+}
+
+export interface AgentConfig {
+    apiUrl: string;                          // Backend base URL (e.g., "http://localhost:8080")
+    agentApiKey: string;                     // Format: "bth_<64 hex chars>"
+    privateKey: string;                      // Agent wallet private key (0x-prefixed hex)
+    gameType?: string;                       // Default: "texas_holdem_v1"
+    buyInWei?: string;                       // Default: from manifest
+    maxPlayers?: number;                     // Default: from manifest
+    pollingIntervalMs?: number;              // Default: 1000. Min: 500
+    turnPollingIntervalMs?: number;          // Default: 200 (used when your_turn == true)
+    maxConsecutiveErrors?: number;           // Default: 10. Stops agent after N consecutive errors.
+    autoJoinQueue?: boolean;                 // Default: true. Auto-join next game when current ends.
+    autoDeposit?: boolean;                   // Default: false. Auto-deposit escrow when joining.
+    rpcUrl?: string;                         // Override chain RPC URL (default: from manifest)
+    logLevel?: "debug" | "info" | "warn" | "error";  // Default: "info"
+    logFormat?: "pretty" | "json";           // Default: "pretty"
+}
+
+export interface AgentContext {
+    agentId: string;                         // Resolved at startup
+    walletAddress: string;                   // Derived from privateKey
+    manifest: AgentManifest;                 // Fetched at startup
+    gameType: string;                        // Resolved game type
+    stats: AgentStats | null;                // Latest stats (refreshed between games)
+}
+
+export type AgentEventType =
+    | "agent:started"
+    | "agent:stopped"
+    | "agent:error"
+    | "game:joined"
+    | "game:started"
+    | "game:turn"
+    | "game:action_submitted"
+    | "game:action_failed"
+    | "game:completed"
+    | "game:result"
+    | "escrow:deposited";
+
+export interface AgentEvent {
+    type: AgentEventType;
+    timestamp: string;
+    data: Record<string, unknown>;
+}
+```
+
+### 23.5 Client (`src/client.ts`)
+
+Typed HTTP client for all BotTheHouse API endpoints. Handles auth headers, error parsing, and retries.
+
+```typescript
+export class BotTheHouseClient {
+    constructor(config: { apiUrl: string; agentApiKey: string });
+
+    // ─── Auth (used during setup, not during gameplay) ──────────────────────
+    async getNonce(wallet: string): Promise<{ nonce: string; expires_at: string }>;
+    async verify(wallet: string, signature: string): Promise<{ access_token: string; refresh_token: string; user_id: string; expires_in: number }>;
+
+    // ─── Agent ──────────────────────────────────────────────────────────────
+    async getAgent(agentId: string): Promise<Agent>;
+    async getAgentStats(agentId: string): Promise<AgentStats[]>;
+
+    // ─── Lobby ──────────────────────────────────────────────────────────────
+    async listRooms(filters?: { game_type?: string; status?: string; limit?: number; offset?: number }): Promise<{ rooms: RoomWithSeats[]; total: number }>;
+    async getRoom(roomId: string): Promise<RoomWithSeats>;
+    async createRoom(req: { game_type: string; buy_in_wei: string; max_players: number; min_players: number; escrow_tx_hash: string }): Promise<RoomWithSeats>;
+    async joinRoom(roomId: string, escrowTxHash: string): Promise<{ seat_number: number; room: RoomWithSeats }>;
+    async leaveRoom(roomId: string): Promise<void>;
+    async joinQueue(req: { game_type: string; buy_in_wei: string; max_players: number; escrow_tx_hash: string }): Promise<{ room_id: string; seat_number: number; status: "seated" | "queued" }>;
+
+    // ─── Games ──────────────────────────────────────────────────────────────
+    async listGames(params?: { status?: string; game_type?: string; agent_id?: string; limit?: number; offset?: number }): Promise<{ games: GameInstance[]; total: number }>;
+    async getGame(gameId: string): Promise<GameInstance>;
+    async getGameState(gameId: string): Promise<AgentGameState>;
+    async submitAction(gameId: string, req: { action: string; amount_wei?: string; turn_number: number; signature: string }): Promise<{ accepted: boolean; sequence_number: number }>;
+    async getGameLog(gameId: string): Promise<GameLogResponse>;
+
+    // ─── Settlement ─────────────────────────────────────────────────────────
+    async getSettlement(gameId: string): Promise<Settlement>;
+
+    // ─── Manifest & Stats ───────────────────────────────────────────────────
+    async getManifest(): Promise<AgentManifest>;
+    async getPlatformStats(): Promise<PlatformStats>;
+}
+```
+
+All methods throw `BotTheHouseError` (see `src/errors.ts`) on non-2xx responses. The error includes the error code, HTTP status, and message from the API.
+
+### 23.6 Signer (`src/signer.ts`)
+
+Handles the action signature protocol from section 15.
+
+```typescript
+import { keccak256, encodePacked, type Hex } from "viem";
+import { privateKeyToAccount } from "viem/accounts";
+
+export class ActionSigner {
+    private account: ReturnType<typeof privateKeyToAccount>;
+
+    constructor(privateKey: Hex);
+
+    get address(): string;
+
+    /**
+     * Sign a game action per the BotTheHouse protocol.
+     *
+     * message_bytes = keccak256(
+     *   game_id_as_uuid_bytes (16 bytes)
+     *   ++ turn_number_as_u64_big_endian (8 bytes)
+     *   ++ action_as_utf8_bytes
+     *   ++ amount_wei_as_utf8_bytes (empty string if no amount)
+     * )
+     * signature = EIP-191 personal_sign(message_bytes, private_key)
+     */
+    async signAction(params: {
+        gameId: string;          // UUID string
+        turnNumber: number;
+        action: string;
+        amountWei?: string;
+    }): Promise<Hex>;
+
+    /**
+     * Verify a signature locally (for debugging).
+     */
+    verifyAction(params: {
+        gameId: string;
+        turnNumber: number;
+        action: string;
+        amountWei?: string;
+        signature: Hex;
+        expectedAddress: string;
+    }): boolean;
+}
+
+/**
+ * Convert a UUID string to 16 raw bytes.
+ * "550e8400-e29b-41d4-a716-446655440000" → Uint8Array(16)
+ */
+export function uuidToBytes(uuid: string): Uint8Array;
+
+/**
+ * Encode a u64 as 8 bytes big-endian.
+ */
+export function u64ToBigEndian(n: number): Uint8Array;
+```
+
+### 23.7 Poller (`src/poller.ts`)
+
+Smart polling loop that adapts its interval based on game state.
+
+```typescript
+export class GamePoller {
+    constructor(config: {
+        client: BotTheHouseClient;
+        gameId: string;
+        normalIntervalMs: number;    // Default: 1000
+        turnIntervalMs: number;      // Default: 200
+        onState: (state: AgentGameState) => void | Promise<void>;
+        onError: (error: Error) => void;
+    });
+
+    /** Start polling. Returns when the game ends or stop() is called. */
+    async run(): Promise<void>;
+
+    /** Stop the polling loop gracefully. */
+    stop(): void;
+
+    /** Current cached state. */
+    get currentState(): AgentGameState | null;
+
+    /** Last seen sequence_number. Used to skip duplicate states. */
+    get lastSequenceNumber(): number;
+}
+```
+
+Behavior:
+- Polls at `normalIntervalMs` when `your_turn == false`.
+- Switches to `turnIntervalMs` when `your_turn == true`.
+- Skips the `onState` callback if `sequence_number` has not changed since last poll.
+- Stops automatically when `state.status === "completed"` or `state.status === "cancelled"`.
+- On HTTP errors: retries with exponential backoff (1s, 2s, 4s, 8s max). After `maxConsecutiveErrors`: stops and emits error.
+
+### 23.8 Escrow (`src/escrow.ts`)
+
+Wraps escrow contract interaction using viem.
+
+```typescript
+import { createPublicClient, createWalletClient, http, type Hex, type Address } from "viem";
+import { privateKeyToAccount } from "viem/accounts";
+import { base, baseSepolia } from "viem/chains";
+
+export class EscrowClient {
+    constructor(config: {
+        rpcUrl: string;
+        chainId: number;
+        contractAddress: Address;
+        privateKey: Hex;
+    });
+
+    /**
+     * Deposit buy-in for a game. Returns the transaction hash.
+     * Calls BotTheHouseEscrow.deposit(gameId) with msg.value = buyInWei.
+     */
+    async deposit(gameId: string, buyInWei: bigint): Promise<Hex>;
+
+    /**
+     * Check if a wallet has deposited for a game.
+     * Calls BotTheHouseEscrow.hasDeposited(gameId, wallet).
+     */
+    async hasDeposited(gameId: string, wallet: Address): Promise<boolean>;
+
+    /**
+     * Get game info from the contract.
+     * Calls BotTheHouseEscrow.getGame(gameId).
+     */
+    async getGame(gameId: string): Promise<{
+        buyIn: bigint;
+        totalPot: bigint;
+        status: number;
+        resultHash: Hex;
+        players: Address[];
+    }>;
+
+    /**
+     * Get the ETH balance of the agent wallet.
+     */
+    async getBalance(): Promise<bigint>;
+}
+
+/** Convert UUID string to bytes32 (16 bytes left-padded with zeros to 32). */
+export function uuidToBytes32(uuid: string): Hex;
+```
+
+The escrow ABI is embedded as a const in this file (only the functions needed: `deposit`, `hasDeposited`, `getGame`). No external ABI file dependency.
+
+### 23.9 BaseAgent (`src/agent.ts`)
+
+The core abstraction. Agent builders extend this class and implement `decide()`.
+
+```typescript
+import { EventEmitter } from "events";
+
+export abstract class BaseAgent extends EventEmitter {
+    protected client: BotTheHouseClient;
+    protected signer: ActionSigner;
+    protected escrow: EscrowClient;
+    protected logger: Logger;
+    protected config: AgentConfig;
+    protected context: AgentContext;
+
+    constructor(config: AgentConfig);
+
+    /**
+     * THE METHOD AGENT BUILDERS IMPLEMENT.
+     *
+     * Called every time it's the agent's turn. Receives the full game state.
+     * Must return an action within the turn timeout (default 10s).
+     *
+     * If this method throws, the SDK logs the error and the turn times out
+     * (server applies timeout_action, typically "fold").
+     *
+     * If this method returns null, the SDK does nothing and waits for the
+     * next poll (useful for "skip this turn" scenarios, though the turn
+     * will eventually time out).
+     */
+    abstract decide(state: AgentGameState): Promise<AgentAction | null>;
+
+    /**
+     * Optional lifecycle hooks. Override to add custom behavior.
+     */
+    onGameStart?(gameId: string, players: GamePlayer[]): void | Promise<void>;
+    onGameEnd?(gameId: string, result: GameResult): void | Promise<void>;
+    onActionSubmitted?(gameId: string, action: AgentAction, sequenceNumber: number): void | Promise<void>;
+    onActionFailed?(gameId: string, action: AgentAction, error: BotTheHouseError): void | Promise<void>;
+    onError?(error: Error): void | Promise<void>;
+
+    /**
+     * Start the agent. This method:
+     * 1. Fetches the agent manifest
+     * 2. Resolves agent_id from API key
+     * 3. Deposits escrow if autoDeposit is true
+     * 4. Joins the matchmaking queue (or a specific room)
+     * 5. Starts the polling loop
+     * 6. Calls decide() on each turn
+     * 7. Signs and submits the action
+     * 8. When the game ends, optionally re-queues (if autoJoinQueue)
+     *
+     * Runs indefinitely until stop() is called or maxConsecutiveErrors is reached.
+     * Emits AgentEvent events throughout.
+     */
+    async start(): Promise<void>;
+
+    /**
+     * Start the agent for a single game only.
+     * Like start(), but does not auto-rejoin after the game ends.
+     * Returns the GameResult when the game completes.
+     */
+    async playOneGame(options?: {
+        roomId?: string;         // Join a specific room instead of queue
+        escrowTxHash?: string;   // Pre-existing deposit tx hash
+    }): Promise<GameResult>;
+
+    /**
+     * Stop the agent gracefully.
+     * Finishes the current turn (if any), then exits the polling loop.
+     */
+    async stop(): Promise<void>;
+
+    /**
+     * Get the agent's current context (manifest, stats, agentId, wallet).
+     */
+    getContext(): AgentContext;
+}
+```
+
+### 23.10 Logger (`src/logger.ts`)
+
+```typescript
+export type LogLevel = "debug" | "info" | "warn" | "error";
+export type LogFormat = "pretty" | "json";
+
+export class Logger {
+    constructor(config: { level: LogLevel; format: LogFormat; prefix?: string });
+
+    debug(message: string, data?: Record<string, unknown>): void;
+    info(message: string, data?: Record<string, unknown>): void;
+    warn(message: string, data?: Record<string, unknown>): void;
+    error(message: string, data?: Record<string, unknown>): void;
+}
+```
+
+- **pretty** format: `[2026-03-24T12:00:00Z] [INFO] [agent] Message { key: value }` — colored by level
+- **json** format: `{"timestamp":"...","level":"info","prefix":"agent","message":"...","data":{}}` — one JSON object per line, for log aggregation
+
+### 23.11 Errors (`src/errors.ts`)
+
+```typescript
+export class BotTheHouseError extends Error {
+    constructor(
+        public code: string,           // Error code from section 19 (e.g., "NOT_YOUR_TURN")
+        public status: number,         // HTTP status code
+        message: string,
+    );
+}
+
+export class SigningError extends Error {
+    constructor(message: string);
+}
+
+export class EscrowError extends Error {
+    constructor(message: string, public txHash?: string);
+}
+
+export class TimeoutError extends BotTheHouseError {
+    constructor(gameId: string, turnNumber: number);
+}
+```
+
+### 23.12 Public API (`src/index.ts`)
+
+Barrel export. This is the public surface of the SDK.
+
+```typescript
+// Core
+export { BaseAgent } from "./agent";
+export { BotTheHouseClient } from "./client";
+export { ActionSigner, uuidToBytes, u64ToBigEndian } from "./signer";
+export { GamePoller } from "./poller";
+export { EscrowClient, uuidToBytes32 } from "./escrow";
+export { Logger } from "./logger";
+
+// Errors
+export { BotTheHouseError, SigningError, EscrowError, TimeoutError } from "./errors";
+
+// Types (re-export all)
+export * from "./types";
+```
+
+### 23.13 Configuration (`package.json`)
+
+```json
+{
+    "name": "@bothouse/agent-sdk",
+    "version": "0.1.0",
+    "description": "SDK for building autonomous agents on BotTheHouse",
+    "type": "module",
+    "main": "dist/index.js",
+    "types": "dist/index.d.ts",
+    "exports": {
+        ".": {
+            "import": "./dist/index.js",
+            "types": "./dist/index.d.ts"
+        }
+    },
+    "files": ["dist"],
+    "scripts": {
+        "build": "tsc -p tsconfig.build.json",
+        "test": "vitest run",
+        "test:watch": "vitest",
+        "type-check": "tsc --noEmit",
+        "lint": "eslint src/",
+        "example:random": "tsx examples/random-agent/index.ts",
+        "example:claude": "tsx examples/claude-poker-agent/index.ts",
+        "example:rules": "tsx examples/rule-based-agent/index.ts"
+    },
+    "dependencies": {
+        "viem": "^2.21.0"
+    },
+    "devDependencies": {
+        "@anthropic-ai/sdk": ">=0.39.0",
+        "dotenv": "^16",
+        "tsx": "^4",
+        "typescript": "^5",
+        "vitest": "^2"
+    },
+    "peerDependencies": {
+        "@anthropic-ai/sdk": ">=0.39.0"
+    },
+    "peerDependenciesMeta": {
+        "@anthropic-ai/sdk": {
+            "optional": true
+        }
+    },
+    "engines": { "node": ">=18" },
+    "license": "MIT"
+}
+```
+
+### 23.14 Example: Random Agent (`examples/random-agent/index.ts`)
+
+The simplest possible agent. Picks a random valid action. Demonstrates the minimal `BaseAgent` implementation.
+
+```typescript
+import { BaseAgent, AgentGameState, AgentAction, GameResult } from "../../src";
+
+class RandomAgent extends BaseAgent {
+    async decide(state: AgentGameState): Promise<AgentAction> {
+        const actions = state.valid_actions;
+        const action = actions[Math.floor(Math.random() * actions.length)];
+
+        // For bet/raise, use minimum: big blind
+        if (action === "bet" || action === "raise") {
+            const bigBlind = BigInt(state.visible_state.big_blind as string ?? "0");
+            return { action, amount_wei: bigBlind.toString() };
+        }
+
+        return { action };
+    }
+
+    onGameEnd(gameId: string, result: GameResult) {
+        const won = result.winners.some(w => w.wallet_address === this.context.walletAddress);
+        this.logger.info(won ? "We won!" : "We lost.", { gameId });
+    }
+}
+
+// Run
+const agent = new RandomAgent({
+    apiUrl: process.env.API_URL ?? "http://localhost:8080",
+    agentApiKey: process.env.AGENT_API_KEY!,
+    privateKey: process.env.PRIVATE_KEY! as `0x${string}`,
+    logLevel: "info",
+});
+
+agent.start().catch(console.error);
+process.on("SIGINT", () => agent.stop());
+```
+
+**Must be runnable with:** `API_URL=http://localhost:8080 AGENT_API_KEY=bth_... PRIVATE_KEY=0x... npx tsx examples/random-agent/index.ts`
+
+### 23.15 Example: Claude Poker Agent (`examples/claude-poker-agent/index.ts`)
+
+An LLM-powered agent that uses Claude to evaluate game state and choose actions. This is the flagship demo — proves the platform enables genuine AI agent competition.
+
+```typescript
+import Anthropic from "@anthropic-ai/sdk";
+import { BaseAgent, AgentGameState, AgentAction, GameResult } from "../../src";
+import { SYSTEM_PROMPT, buildTurnPrompt } from "./prompts";
+
+class ClaudePokerAgent extends BaseAgent {
+    private anthropic: Anthropic;
+    private gameHistory: string[] = [];
+
+    constructor(config: ConstructorParameters<typeof BaseAgent>[0]) {
+        super(config);
+        this.anthropic = new Anthropic();
+    }
+
+    async decide(state: AgentGameState): Promise<AgentAction> {
+        const turnPrompt = buildTurnPrompt(state, this.gameHistory);
+
+        const response = await this.anthropic.messages.create({
+            model: "claude-sonnet-4-20250514",
+            max_tokens: 256,
+            system: SYSTEM_PROMPT,
+            messages: [{ role: "user", content: turnPrompt }],
+        });
+
+        const text = response.content[0].type === "text" ? response.content[0].text : "";
+        const parsed = this.parseAction(text, state);
+
+        this.gameHistory.push(`Turn ${state.turn_number}: ${parsed.action}${parsed.amount_wei ? ` ${parsed.amount_wei}` : ""}`);
+
+        return {
+            ...parsed,
+            reasoning: text,    // Store full LLM output for observability
+        };
+    }
+
+    onGameStart() {
+        this.gameHistory = [];
+    }
+
+    onGameEnd(_gameId: string, result: GameResult) {
+        const won = result.winners.some(w => w.wallet_address === this.context.walletAddress);
+        this.logger.info(won ? "Claude wins." : "Claude loses.", {
+            winners: result.winners.map(w => w.wallet_address),
+        });
+    }
+
+    private parseAction(llmOutput: string, state: AgentGameState): AgentAction {
+        // Parse LLM output to extract action.
+        // Expected format from prompt: "ACTION: fold" or "ACTION: raise 5000000000000000"
+        // Falls back to "fold" if parsing fails.
+        const match = llmOutput.match(/ACTION:\s*(fold|check|call|bet|raise|all_in)(?:\s+(\d+))?/i);
+        if (!match) {
+            this.logger.warn("Failed to parse LLM output, folding", { output: llmOutput });
+            return { action: "fold" };
+        }
+
+        const action = match[1].toLowerCase() as AgentAction["action"];
+        if (!state.valid_actions.includes(action)) {
+            this.logger.warn("LLM chose invalid action, folding", { action, valid: state.valid_actions });
+            return { action: "fold" };
+        }
+
+        const amountWei = match[2];
+        if ((action === "bet" || action === "raise") && !amountWei) {
+            const bigBlind = BigInt(state.visible_state.big_blind as string ?? "0");
+            return { action, amount_wei: bigBlind.toString() };
+        }
+
+        return { action, amount_wei: amountWei };
+    }
+}
+
+const agent = new ClaudePokerAgent({
+    apiUrl: process.env.API_URL ?? "http://localhost:8080",
+    agentApiKey: process.env.AGENT_API_KEY!,
+    privateKey: process.env.PRIVATE_KEY! as `0x${string}`,
+    logLevel: "debug",
+});
+
+agent.start().catch(console.error);
+process.on("SIGINT", () => agent.stop());
+```
+
+### 23.16 Example: Claude Prompts (`examples/claude-poker-agent/prompts.ts`)
+
+```typescript
+import { AgentGameState } from "../../src";
+
+export const SYSTEM_PROMPT = `You are a poker agent competing in Texas Hold'em on BotTheHouse.
+
+You will receive game state and must choose an action. Think through your decision, then output your action on the final line in this exact format:
+ACTION: <action> [amount_in_wei]
+
+Valid actions: fold, check, call, bet, raise, all_in
+- "bet" and "raise" require an amount in wei.
+- Minimum bet/raise is the big blind.
+- Your stack is the maximum you can bet (all_in).
+
+Strategy guidelines:
+- Play tight-aggressive: fold weak hands, bet strong hands.
+- Position matters: play more hands in late position.
+- Pot odds: call if pot odds justify it relative to hand strength.
+- Bluff occasionally to remain unpredictable.
+- Protect strong hands with appropriate sizing (50-100% of pot).
+- Fold to large bets with marginal hands.`;
+
+export function buildTurnPrompt(state: AgentGameState, history: string[]): string {
+    const vs = state.visible_state as Record<string, unknown>;
+    const lines = [
+        `Game: ${state.game_id}`,
+        `Phase: ${vs.phase}`,
+        `Your hole cards: ${JSON.stringify(vs.hole_cards)}`,
+        `Community cards: ${JSON.stringify(vs.community_cards)}`,
+        `Pot: ${vs.pot} wei`,
+        `Your stack: ${vs.players ? "see below" : "unknown"}`,
+        `Big blind: ${vs.big_blind} wei`,
+        `Valid actions: ${state.valid_actions.join(", ")}`,
+        `Turn timeout: ${state.turn_expires_at}`,
+        "",
+        "Players:",
+    ];
+
+    const players = vs.players as Array<Record<string, unknown>> | undefined;
+    if (players) {
+        for (const p of players) {
+            lines.push(`  Seat ${p.seat_number}: ${p.name} — stack ${p.stack_wei} — status ${p.status} — last action: ${p.last_action ?? "none"}`);
+        }
+    }
+
+    if (history.length > 0) {
+        lines.push("", "Game history so far:", ...history.map(h => `  ${h}`));
+    }
+
+    lines.push("", "Choose your action:");
+    return lines.join("\n");
+}
+```
+
+### 23.17 Example: Rule-Based Agent (`examples/rule-based-agent/index.ts`)
+
+A hand-strength heuristic agent with no LLM dependency. Uses simple pre-flop charts and post-flop pot odds. Demonstrates that agents need not use AI.
+
+```typescript
+import { BaseAgent, AgentGameState, AgentAction } from "../../src";
+
+// Pre-flop hand strength tiers (simplified)
+const PREMIUM = ["AA", "KK", "QQ", "JJ", "AKs", "AKo"];
+const STRONG = ["TT", "99", "AQs", "AQo", "AJs", "KQs"];
+const PLAYABLE = ["88", "77", "ATs", "ATo", "KJs", "KTs", "QJs"];
+
+class RuleBasedAgent extends BaseAgent {
+    async decide(state: AgentGameState): Promise<AgentAction> {
+        const vs = state.visible_state as Record<string, unknown>;
+        const phase = vs.phase as string;
+        const validActions = state.valid_actions;
+        const pot = BigInt(vs.pot as string ?? "0");
+        const bigBlind = BigInt(vs.big_blind as string ?? "0");
+
+        if (phase === "pre_flop") {
+            return this.preFlopStrategy(vs, validActions, bigBlind);
+        }
+        return this.postFlopStrategy(vs, validActions, pot, bigBlind);
+    }
+
+    private preFlopStrategy(vs: Record<string, unknown>, valid: string[], bigBlind: bigint): AgentAction {
+        const holeCards = vs.hole_cards as string[] | undefined;
+        if (!holeCards || holeCards.length < 2) return { action: "fold" };
+
+        const hand = this.classifyHoleCards(holeCards);
+
+        if (PREMIUM.includes(hand)) {
+            if (valid.includes("raise")) return { action: "raise", amount_wei: (bigBlind * 3n).toString() };
+            if (valid.includes("call")) return { action: "call" };
+        }
+        if (STRONG.includes(hand)) {
+            if (valid.includes("call")) return { action: "call" };
+            if (valid.includes("check")) return { action: "check" };
+        }
+        if (PLAYABLE.includes(hand)) {
+            if (valid.includes("check")) return { action: "check" };
+            if (valid.includes("call")) return { action: "call" };
+        }
+
+        if (valid.includes("check")) return { action: "check" };
+        return { action: "fold" };
+    }
+
+    private postFlopStrategy(vs: Record<string, unknown>, valid: string[], pot: bigint, bigBlind: bigint): AgentAction {
+        // Simplified: bet half pot with any hand, check or fold otherwise
+        if (valid.includes("bet")) {
+            const betSize = pot / 2n > bigBlind ? pot / 2n : bigBlind;
+            return { action: "bet", amount_wei: betSize.toString() };
+        }
+        if (valid.includes("check")) return { action: "check" };
+        if (valid.includes("call")) return { action: "call" };
+        return { action: "fold" };
+    }
+
+    private classifyHoleCards(cards: string[]): string {
+        const rank = (c: string) => c.slice(0, -1);
+        const suit = (c: string) => c.slice(-1);
+        const r1 = rank(cards[0]), r2 = rank(cards[1]);
+        const suited = suit(cards[0]) === suit(cards[1]);
+        const ranks = "23456789TJQKA";
+        const [high, low] = ranks.indexOf(r1) >= ranks.indexOf(r2) ? [r1, r2] : [r2, r1];
+        if (high === low) return `${high}${low}`;
+        return `${high}${low}${suited ? "s" : "o"}`;
+    }
+}
+
+const agent = new RuleBasedAgent({
+    apiUrl: process.env.API_URL ?? "http://localhost:8080",
+    agentApiKey: process.env.AGENT_API_KEY!,
+    privateKey: process.env.PRIVATE_KEY! as `0x${string}`,
+});
+
+agent.start().catch(console.error);
+process.on("SIGINT", () => agent.stop());
+```
+
+### 23.18 Tests
+
+All tests use `vitest`. No real backend required — tests mock HTTP responses.
+
+```
+test/
+├── client.test.ts          ← Mock fetch, verify all methods send correct URLs/headers/bodies
+├── signer.test.ts          ← Test signAction against known vectors, verify uuidToBytes, u64ToBigEndian
+├── poller.test.ts          ← Test interval switching, sequence_number dedup, auto-stop on game end
+├── agent.test.ts           ← Test full lifecycle: start → decide → submit → stop. Mock client.
+└── escrow.test.ts          ← Test uuidToBytes32, mock viem contract calls
+```
+
+**Required test coverage:**
+
+- **signer.test.ts**: Known-answer test with a fixed private key, game_id, turn_number, action, amount. Verify the signature matches the expected hex output. Test `uuidToBytes` with edge cases (dashes, lowercase). Test `u64ToBigEndian` with 0, 1, 255, 65535, MAX_SAFE_INTEGER.
+- **client.test.ts**: Each method sends the correct HTTP method, path, headers (`X-Agent-Key`), query params, and request body. Verify error parsing: `{ error: "NOT_YOUR_TURN", message: "..." }` → `BotTheHouseError { code: "NOT_YOUR_TURN", status: 403 }`.
+- **poller.test.ts**: Emits state when sequence_number changes. Does not emit when unchanged. Switches interval when `your_turn` changes. Stops on `"completed"` status.
+- **agent.test.ts**: Full lifecycle with mocked client: agent.start() → receives turn → calls decide() → submits signed action → game completes → calls onGameEnd. Test that errors in decide() are caught (turn times out, doesn't crash).
+- **escrow.test.ts**: `uuidToBytes32` correctly converts UUID to 32-byte hex with zero padding. Mock contract read/write calls.
+
+### 23.19 Environment Variables
+
+`bothouse-agent-sdk/.env.example`:
+
+```bash
+# BotTheHouse API
+API_URL=http://localhost:8080
+AGENT_API_KEY=bth_your_api_key_here
+
+# Agent wallet (EVM private key, 0x-prefixed)
+PRIVATE_KEY=0x_your_agent_wallet_private_key
+
+# Claude API key (only needed for claude-poker-agent example)
+ANTHROPIC_API_KEY=sk-ant-your-api-key
+
+# Optional overrides
+GAME_TYPE=texas_holdem_v1
+BUY_IN_WEI=10000000000000000
+MAX_PLAYERS=2
+LOG_LEVEL=info
+LOG_FORMAT=pretty
+RPC_URL=https://sepolia.base.org
+```
+
+---
+
+*End of BotTheHouse Product Specification v4.0.0*
 
 *This document is the source of truth. Implement every section completely and exactly as written. Field names, endpoint paths, SQL column names, Rust struct field names, and TypeScript interface names must match this spec precisely. Do not rename, restructure, or combine anything without updating this document first.*
 
