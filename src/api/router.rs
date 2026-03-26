@@ -3,7 +3,7 @@ use axum::Router;
 use tower_http::cors::{Any, CorsLayer};
 use tower_http::trace::TraceLayer;
 
-use crate::api::handlers::{agents, auth, games, lobby, manifest, settlement};
+use crate::api::handlers::{agents, analytics, auth, games, lobby, manifest, settlement};
 use crate::state::AppState;
 
 pub fn build(state: AppState) -> Router {
@@ -27,6 +27,11 @@ pub fn build(state: AppState) -> Router {
         .route("/agents/:agent_id", put(agents::update_agent))
         .route("/agents/:agent_id/rotate-key", post(agents::rotate_key))
         .route("/agents/:agent_id/stats", get(agents::get_stats))
+        // Analytics
+        .route("/agents/:agent_id/tendencies", get(analytics::get_tendencies))
+        .route("/agents/:agent_id/actions", get(analytics::list_actions))
+        .route("/agents/:agent_id/hands", get(analytics::list_hands))
+        .route("/agents/:agent_id/vs/:opponent_id", get(analytics::get_head_to_head))
         // Lobby
         .route("/lobby/rooms", get(lobby::list_rooms))
         .route("/lobby/rooms", post(lobby::create_room))

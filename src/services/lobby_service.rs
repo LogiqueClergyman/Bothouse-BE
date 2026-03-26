@@ -422,6 +422,7 @@ mod tests {
         AppState {
             auth_store: Arc::new(auth_store::MemoryAuthStore::new()),
             agent_store: Arc::new(agent_store::MemoryAgentStore::new()),
+            analytics_store: Arc::new(analytics_store::MemoryAnalyticsStore::new()),
             game_store: Arc::new(game_store::MemoryGameStore::new()),
             lobby_store: Arc::new(lobby_store::MemoryLobbyStore::new()),
             cache: Arc::new(cache_store::MemoryCacheStore::new()),

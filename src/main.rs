@@ -2,6 +2,7 @@ use bothouse_backend::adapters::ethereum::settlement::EthereumSettlement;
 use bothouse_backend::adapters::redis::cache_store::RedisCache;
 use bothouse_backend::adapters::redis::event_bus::RedisEventBus;
 use bothouse_backend::adapters::postgres::agent_store::PgAgentStore;
+use bothouse_backend::adapters::postgres::analytics_store::PgAnalyticsStore;
 use bothouse_backend::adapters::postgres::auth_store::PgAuthStore;
 use bothouse_backend::adapters::postgres::game_store::PgGameStore;
 use bothouse_backend::adapters::postgres::lobby_store::PgLobbyStore;
@@ -52,6 +53,7 @@ async fn main() -> anyhow::Result<()> {
     // 7. Construct adapters
     let auth_store = Arc::new(PgAuthStore::new(pool.clone()));
     let agent_store = Arc::new(PgAgentStore::new(pool.clone()));
+    let analytics_store = Arc::new(PgAnalyticsStore::new(pool.clone()));
     let game_store = Arc::new(PgGameStore::new(pool.clone()));
     let lobby_store = Arc::new(PgLobbyStore::new(pool.clone()));
     let cache = Arc::new(RedisCache::new(redis_conn.clone()));
@@ -75,6 +77,7 @@ async fn main() -> anyhow::Result<()> {
     let state = AppState {
         auth_store,
         agent_store,
+        analytics_store,
         game_store,
         lobby_store,
         cache,

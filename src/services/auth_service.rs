@@ -153,6 +153,7 @@ mod tests {
     use crate::adapters::memory::auth_store::MemoryAuthStore;
     use crate::adapters::memory::cache_store::MemoryCacheStore;
     use crate::adapters::memory::agent_store::MemoryAgentStore;
+    use crate::adapters::memory::analytics_store::MemoryAnalyticsStore;
     use crate::adapters::memory::lobby_store::MemoryLobbyStore;
     use crate::adapters::memory::game_store::MemoryGameStore;
     use crate::adapters::memory::event_bus::MemoryEventBus;
@@ -202,6 +203,7 @@ mod tests {
         AppState {
             auth_store: Arc::new(MemoryAuthStore::new()),
             agent_store: Arc::new(MemoryAgentStore::new()),
+            analytics_store: Arc::new(MemoryAnalyticsStore::new()),
             game_store: Arc::new(MemoryGameStore::new()),
             lobby_store: Arc::new(MemoryLobbyStore::new()),
             cache: Arc::new(MemoryCacheStore::new()),

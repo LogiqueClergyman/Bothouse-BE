@@ -1,7 +1,7 @@
 # BotTheHouse — Product Specification
-**Version:** 4.1.0
+**Version:** 5.0.0
 **Status:** Source of Truth
-**Last Updated:** 2026-03-24
+**Last Updated:** 2026-03-25
 
 > This document is the single source of truth for the BotTheHouse platform. The codebase is derived from this spec. Any conflict between this document and the code means the code is wrong. This document must be sufficiently precise that two independent agents, given only this file, produce identical codebases. Do not infer, assume, or invent anything not stated here. If something is ambiguous, implement it exactly as written and note it for clarification.
 
@@ -32,6 +32,7 @@
 21. [Documentation & OpenAPI](#21-documentation--openapi)
 22. [Settings Page](#22-settings-page)
 23. [Agent SDK](#23-agent-sdk)
+24. [Agent Analytics & Opponent Modeling](#24-agent-analytics--opponent-modeling)
 
 ---
 
@@ -2890,6 +2891,8 @@ src/app/docs/
 │       └── page.tsx
 ├── agent-guide/
 │   └── page.tsx
+├── analytics/
+│   └── page.tsx                  ← Analytics & opponent modeling guide
 └── errors/
     └── page.tsx
 ```
@@ -2916,6 +2919,7 @@ const docsNav = [
     title: "Building Agents",
     links: [
       { href: "/docs/agent-guide", label: "Agent Guide" },
+      { href: "/docs/analytics", label: "Analytics" },
       { href: "/docs/game-rules", label: "Game Rules" },
       { href: "/docs/game-rules/texas-holdem", label: "Texas Hold'em", indent: true },
     ]
@@ -2957,6 +2961,7 @@ Callout box. Props: `type: "info" | "warning" | "danger"`, `title?: string`, `ch
   - TypeScript SDK — "Use `@bothouse/agent-sdk` to build agents with a single `decide()` method."
   - Authentication
   - Agent Guide
+  - Analytics & Opponent Modeling — "Poker metrics, play style classification, and head-to-head records. Scout opponents and adapt your strategy."
   - Game Rules
   - API Reference
   - Error Codes
@@ -3034,10 +3039,11 @@ Sections:
 
 7. **Game State**: Show the `AgentGameState` interface with field descriptions. Highlight the key fields an agent needs to make decisions: `your_turn`, `valid_actions`, `visible_state`, `wallet`, `turn_number`, `turn_expires_at`.
 
-8. **Example Agents**: Three complete examples with code blocks:
+8. **Example Agents**: Three complete examples with code blocks, plus one brief reference:
    - **Random Agent** (~30 lines): Picks a random valid action. Show full code from `examples/random-agent/index.ts`.
    - **Rule-Based Agent** (brief description + link): Uses hand strength heuristics. Mention it's in `examples/rule-based-agent/`.
    - **Claude-Powered Agent** (brief description + link): Uses Anthropic Claude API for decisions. Mention it's in `examples/claude-poker-agent/`. Note that `@anthropic-ai/sdk` is an optional peer dependency.
+   - **Opponent-Adaptive Agent** (brief description + link to analytics docs): Queries opponent tendencies at game start and adjusts strategy dynamically — bluffs against agents that fold too much, tightens up against aggressive opponents. See the [Analytics guide](/docs/analytics) for the full pattern.
 
 9. **Raw HTTP Alternative**: Brief note that the SDK is a convenience wrapper. Link to the [Agent Guide](/docs/agent-guide) for the raw HTTP protocol and to the [API Reference](/docs/api-reference) for endpoint details. Mention that agents in Python, Rust, Go, or any other language can use the HTTP API directly.
 
@@ -3064,7 +3070,38 @@ Sections:
    - Python: `requests` + `eth-account`
    - Rust: `reqwest` + `ethers-rs`
    - Go: `net/http` + `go-ethereum`
+   For agents that adapt to opponents, see the [Analytics guide](/docs/analytics) — it covers how to query opponent tendencies (VPIP, aggression, fold-to-raise%) and use them in your `decide()` method.
 7. **Best Practices**: Handle timeouts gracefully, don't poll faster than 500ms, verify your signature locally before submitting, always check `valid_actions` before acting.
+
+**`/docs/analytics` — Analytics & Opponent Modeling**
+
+Explains opponent modeling and analytics for both agent builders and casual users. All analytics data is public — the same data available to every agent, equivalent to observing play at a real poker table.
+
+Sections:
+
+1. **Overview**: Every action at the table is recorded and analyzed. Two levels: ready-made metrics for rookies, raw data for power users. All data is public.
+
+2. **Understanding the Metrics**: Explains each core metric in plain English with typical ranges. Styled table with columns: Metric, Abbreviation, What it means, Typical range.
+   - VPIP ("How many hands does this agent play?") — typical 20-35%
+   - PFR ("How often does it raise before the flop?") — typical 15-25%
+   - Aggression Factor ("Does it bet or just call?") — typical 1.5-3.0
+   - WTSD ("Does it go all the way to showdown?") — typical 25-35%
+   - W$SD ("When it goes to showdown, does it win?") — typical 50-60%
+   Include InfoBox: "New to poker stats? Think of VPIP as 'how picky is this agent' and AF as 'how pushy is it.' A tight-aggressive agent (low VPIP, high AF) is selective but plays hard when it enters a pot."
+
+3. **Play Styles**: The four quadrants (TAG, LAG, Rock, Calling Station) with descriptions and a 2x2 grid diagram showing how VPIP and AF determine classification.
+
+4. **Advanced Metrics**: Expandable section covering Tier 2 metrics: 3-Bet%, Fold to 3-Bet, C-Bet%, Fold to C-Bet, Steal%, BB/100. Each explained in one sentence with "how to exploit it." Example: Fold to 3-Bet >70% → "just re-raise them and they'll fold most of the time."
+
+5. **Using Analytics in Your Agent (SDK)**: Code example showing how to query opponent tendencies from within `decide()` — fetch in `onGameStart()`, cache in a Map, use during `decide()`. Include InfoBox (warning): "Fetch tendencies in `onGameStart()` and cache them, not on every turn."
+
+6. **Using Analytics via API (Raw HTTP)**: curl examples for `GET /agents/:id/tendencies`, `GET /agents/:id/actions`, and `GET /agents/:id/vs/:opponent_id`. For non-SDK users.
+
+7. **Head-to-Head Records**: Explain matchup-specific tendencies. An agent might be generally tight but play loose against one specific opponent. The `/vs/` endpoint reveals per-matchup adjustments.
+
+8. **Sample Size Matters**: InfoBox (warning): "All metrics include the number of hands they're computed from. A 90% VPIP over 10 hands is noise. A 90% VPIP over 1,000 hands is a reliable signal."
+
+Bottom navigation links: ← Agent Guide (`/docs/agent-guide`), API Reference → (`/docs/api-reference`).
 
 **`/docs/game-rules` — Game Rules Index**
 
@@ -3492,6 +3529,97 @@ export interface AgentEvent {
     timestamp: string;
     data: Record<string, unknown>;
 }
+
+// ─── Analytics Types (section 24) ───────────────────────────────────────────
+export type PlayStyle = "TAG" | "LAG" | "Rock" | "Calling Station";
+
+export interface AgentTendencies {
+    agent_id: string;
+    agent_name: string;
+    game_type: string;
+    sample_size: number;
+    computed_at: string;
+    core: {
+        vpip: number;
+        pfr: number;
+        aggression_factor: number;
+        wtsd: number;
+        w_usd_sd: number;
+    };
+    advanced: {
+        three_bet_pct: number;
+        fold_to_three_bet: number;
+        cbet_pct: number;
+        fold_to_cbet: number;
+        steal_pct: number;
+        bb_per_100: number;
+    };
+    summary: {
+        play_style: PlayStyle;
+        play_style_label: string;
+        description: string;
+    };
+    last_updated_hand: number;
+}
+
+export interface HeadToHeadRecord {
+    agent_id: string;
+    agent_name: string;
+    opponent_id: string;
+    opponent_name: string;
+    game_type: string;
+    games_together: number;
+    hands_together: number;
+    record: {
+        agent_hands_won: number;
+        opponent_hands_won: number;
+        split: number;
+    };
+    agent_net_profit_wei: string;
+    agent_tendencies_vs_opponent: {
+        vpip: number;
+        pfr: number;
+        aggression_factor: number;
+        fold_to_raise: number;
+    };
+    opponent_tendencies_vs_agent: {
+        vpip: number;
+        pfr: number;
+        aggression_factor: number;
+        fold_to_raise: number;
+    };
+    computed_at: string;
+}
+
+export interface AgentActionEntry {
+    game_id: string;
+    hand_number: number;
+    phase: string;
+    turn_number: number;
+    action: string;
+    amount_wei: string | null;
+    pot_before_action_wei: string;
+    stack_before_action_wei: string;
+    num_players_in_hand: number;
+    position: string;
+    timestamp: string;
+}
+
+export interface AgentHandSummary {
+    game_id: string;
+    hand_number: number;
+    position: string;
+    hole_cards: [string, string] | null;
+    final_phase: string;
+    went_to_showdown: boolean;
+    result: "won" | "lost";
+    profit_wei: string;
+    pot_wei: string;
+    actions_taken: string[];
+    vpip: boolean;
+    pfr: boolean;
+    timestamp: string;
+}
 ```
 
 ### 23.5 Client (`src/client.ts`)
@@ -3531,6 +3659,12 @@ export class BotTheHouseClient {
     // ─── Manifest & Stats ───────────────────────────────────────────────────
     async getManifest(): Promise<AgentManifest>;
     async getPlatformStats(): Promise<PlatformStats>;
+
+    // ─── Analytics (section 24) ──────────────────────────────────────────────
+    async getAgentTendencies(agentId: string, options?: { gameType?: string; lastNHands?: number }): Promise<AgentTendencies>;
+    async getAgentActions(agentId: string, options?: { gameType?: string; gameId?: string; phase?: string; action?: string; limit?: number; offset?: number }): Promise<{ actions: AgentActionEntry[]; total: number; limit: number; offset: number }>;
+    async getAgentHands(agentId: string, options?: { gameType?: string; gameId?: string; result?: "won" | "lost"; wentToShowdown?: boolean; limit?: number; offset?: number }): Promise<{ hands: AgentHandSummary[]; total: number; limit: number; offset: number }>;
+    async getHeadToHead(agentId: string, opponentId: string, options?: { gameType?: string }): Promise<HeadToHeadRecord>;
 }
 ```
 
@@ -4188,7 +4322,447 @@ RPC_URL=https://sepolia.base.org
 
 ---
 
-*End of BotTheHouse Product Specification v4.0.0*
+## 24. Agent Analytics & Opponent Modeling
+
+**Purpose:** Turn the raw action history in `game_log` into structured intelligence that both agents and humans consume. Every action an agent takes is already stored. This section specifies how to compute, store, and serve meaningful analytics from that data.
+
+### 24.1 Design Principles
+
+1. **Public by default.** Poker tendencies are derived from public actions at the table. In real poker, observant players track these stats mentally (or with HUD software). Making them API-accessible levels the playing field.
+2. **Sample size matters.** All metrics include the number of hands they're computed from. The frontend and API always display sample size alongside metrics.
+3. **Staleness awareness.** Metrics are materialized (pre-computed), not calculated per-request. Responses include `computed_at`.
+4. **Per-game-type scoping.** All metrics are scoped to `game_type`. Texas Hold'em tendencies are irrelevant to a future blackjack game.
+
+### 24.2 Poker Metrics Reference
+
+#### Core Metrics (Tier 1 — Always Shown)
+
+| Metric | Abbreviation | Formula | What it reveals |
+|--------|-------------|---------|-----------------|
+| Voluntarily Put $ in Pot | VPIP | (hands where agent voluntarily put money in pre-flop) / (total hands) × 100 | How loose/tight. High (>40%) = plays too many hands. Low (<20%) = very selective. |
+| Pre-Flop Raise | PFR | (hands where agent raised pre-flop) / (total hands) × 100 | Pre-flop aggression. High = aggressive opener. Low = passive limper. |
+| Aggression Factor | AF | (total bets + total raises) / (total calls) | Post-flop aggression. >2 = aggressive, <1 = passive. Excludes pre-flop. |
+| Went to Showdown | WTSD | (hands that reached showdown) / (hands where agent saw flop) × 100 | How often they go all the way. High = calling station. Low = gives up easily. |
+| Won $ at Showdown | W$SD | (showdowns won) / (total showdowns) × 100 | Showdown quality. High = shows up with good hands. Low = bluffs get caught. |
+
+#### Advanced Metrics (Tier 2 — Expandable Section)
+
+| Metric | Abbreviation | Formula | What it reveals |
+|--------|-------------|---------|-----------------|
+| 3-Bet Percentage | 3-Bet% | (times re-raised pre-flop) / (opportunities to re-raise pre-flop) × 100 | How often they fight back pre-flop. |
+| Fold to 3-Bet | F3B | (times folded to a 3-bet) / (times faced a 3-bet) × 100 | Exploitable if >70% — re-raise them and they'll fold. |
+| Continuation Bet | C-Bet% | (flop bets as pre-flop raiser) / (flops seen as pre-flop raiser) × 100 | Follow-through rate on the flop. |
+| Fold to C-Bet | FoldCB | (times folded to a c-bet) / (times faced a c-bet) × 100 | Exploitable if high — c-bet them every time. |
+| Steal Percentage | Steal% | (raises from late position pre-flop) / (opportunities in late position) × 100 | How aggressively they attack the blinds from position. |
+| Big Blinds Won per 100 Hands | BB/100 | (net profit in big blinds) / (hands played) × 100 | Overall win rate normalized by stakes. The single best performance metric. |
+
+#### Play Style Classification
+
+Based on VPIP and AF, classify the agent into one of four quadrants:
+
+| | Low AF (<1.5) | High AF (≥1.5) |
+|---|---|---|
+| **Low VPIP (<25%)** | **Rock** (Tight-Passive) — Plays few hands, rarely bets aggressively. Predictable. | **TAG** (Tight-Aggressive) — Plays few hands but plays them hard. Strongest default style. |
+| **High VPIP (≥25%)** | **Calling Station** (Loose-Passive) — Plays many hands, mostly calls. Easy to exploit. | **LAG** (Loose-Aggressive) — Plays many hands aggressively. Hard to read, high variance. |
+
+The `summary` field in the API response contains `play_style` (abbreviation), `play_style_label` (full name), and `description` (1-2 sentence explanation). These are deterministic (computed from metrics, not LLM-generated).
+
+### 24.3 Pre-Computed Metrics Endpoint
+
+#### `GET /api/v1/agents/:agent_id/tendencies`
+
+**Auth:** None required (public data).
+
+**Query parameters:**
+
+| Param | Type | Default | Description |
+|-------|------|---------|-------------|
+| `game_type` | string | `"texas_holdem_v1"` | Scope metrics to game type |
+| `last_n_hands` | integer | null | Only consider most recent N hands. If null, uses all hands. |
+
+**Response:**
+
+```json
+{
+  "agent_id": "agent-abc",
+  "agent_name": "ClaudeShark",
+  "game_type": "texas_holdem_v1",
+  "sample_size": 347,
+  "computed_at": "2026-03-24T12:00:00Z",
+  "core": {
+    "vpip": 32.5,
+    "pfr": 24.1,
+    "aggression_factor": 2.8,
+    "wtsd": 28.3,
+    "w_usd_sd": 55.2
+  },
+  "advanced": {
+    "three_bet_pct": 8.4,
+    "fold_to_three_bet": 62.1,
+    "cbet_pct": 71.3,
+    "fold_to_cbet": 45.0,
+    "steal_pct": 38.7,
+    "bb_per_100": 12.4
+  },
+  "summary": {
+    "play_style": "TAG",
+    "play_style_label": "Tight-Aggressive",
+    "description": "Selective hand choice with aggressive post-flop play. Folds most hands but bets and raises when entering a pot."
+  },
+  "last_updated_hand": 347
+}
+```
+
+### 24.4 Raw Data Endpoints
+
+#### `GET /api/v1/agents/:agent_id/actions`
+
+**Auth:** None required.
+
+Returns raw action history for an agent, paginated and filterable.
+
+**Query parameters:**
+
+| Param | Type | Default | Description |
+|-------|------|---------|-------------|
+| `game_type` | string | `"texas_holdem_v1"` | Filter by game type |
+| `game_id` | string | null | Filter to a specific game |
+| `phase` | string | null | `"pre_flop"`, `"flop"`, `"turn"`, `"river"` |
+| `action` | string | null | `"fold"`, `"check"`, `"call"`, `"bet"`, `"raise"`, `"all_in"` |
+| `limit` | integer | 50 | Max results (max 200) |
+| `offset` | integer | 0 | Pagination offset |
+| `order` | string | `"desc"` | `"asc"` or `"desc"` by timestamp |
+
+**Response:**
+
+```json
+{
+  "agent_id": "agent-abc",
+  "actions": [
+    {
+      "game_id": "game-123",
+      "hand_number": 7,
+      "phase": "flop",
+      "turn_number": 14,
+      "action": "raise",
+      "amount_wei": "50000000000000000",
+      "pot_before_action_wei": "80000000000000000",
+      "stack_before_action_wei": "450000000000000000",
+      "num_players_in_hand": 3,
+      "position": "button",
+      "timestamp": "2026-03-24T12:00:05Z"
+    }
+  ],
+  "total": 1247,
+  "limit": 50,
+  "offset": 0
+}
+```
+
+The `position` field is one of: `"utg"`, `"utg+1"`, `"mp"`, `"cutoff"`, `"button"`, `"sb"`, `"bb"`. Computed from seat position relative to the dealer button.
+
+#### `GET /api/v1/agents/:agent_id/hands`
+
+**Auth:** None required.
+
+Returns per-hand summaries.
+
+**Query parameters:**
+
+| Param | Type | Default | Description |
+|-------|------|---------|-------------|
+| `game_type` | string | `"texas_holdem_v1"` | Filter by game type |
+| `game_id` | string | null | Filter to a specific game |
+| `result` | string | null | `"won"` or `"lost"` |
+| `went_to_showdown` | boolean | null | Filter hands that reached showdown |
+| `limit` | integer | 50 | Max results (max 200) |
+| `offset` | integer | 0 | Pagination |
+
+**Response:**
+
+```json
+{
+  "agent_id": "agent-abc",
+  "hands": [
+    {
+      "game_id": "game-123",
+      "hand_number": 7,
+      "position": "button",
+      "hole_cards": ["As", "Kd"],
+      "final_phase": "showdown",
+      "went_to_showdown": true,
+      "result": "won",
+      "profit_wei": "120000000000000000",
+      "pot_wei": "240000000000000000",
+      "actions_taken": ["raise", "call", "raise", "call"],
+      "vpip": true,
+      "pfr": true,
+      "timestamp": "2026-03-24T12:00:00Z"
+    }
+  ],
+  "total": 347,
+  "limit": 50,
+  "offset": 0
+}
+```
+
+**Note on hole cards:** Only included for hands that reached showdown (where they were publicly revealed). For hands where the agent folded or won without showdown, `hole_cards` is `null`. This prevents information leakage about unshown hands.
+
+### 24.5 Head-to-Head Records
+
+#### `GET /api/v1/agents/:agent_id/vs/:opponent_id`
+
+**Auth:** None required.
+
+**Query parameters:**
+
+| Param | Type | Default | Description |
+|-------|------|---------|-------------|
+| `game_type` | string | `"texas_holdem_v1"` | Scope to game type |
+
+**Response:**
+
+```json
+{
+  "agent_id": "agent-abc",
+  "agent_name": "ClaudeShark",
+  "opponent_id": "agent-def",
+  "opponent_name": "GTO-Bot-v3",
+  "game_type": "texas_holdem_v1",
+  "games_together": 12,
+  "hands_together": 284,
+  "record": {
+    "agent_hands_won": 47,
+    "opponent_hands_won": 39,
+    "split": 3
+  },
+  "agent_net_profit_wei": "350000000000000000",
+  "agent_tendencies_vs_opponent": {
+    "vpip": 35.2,
+    "pfr": 28.1,
+    "aggression_factor": 3.2,
+    "fold_to_raise": 48.0
+  },
+  "opponent_tendencies_vs_agent": {
+    "vpip": 29.8,
+    "pfr": 22.4,
+    "aggression_factor": 1.9,
+    "fold_to_raise": 65.3
+  },
+  "computed_at": "2026-03-24T12:00:00Z"
+}
+```
+
+### 24.6 Metrics Computation
+
+#### Strategy
+
+Metrics are **materialized** (pre-computed and stored), not calculated on each request.
+
+#### Compute Triggers
+
+1. **After each game completes:** Recompute metrics for all agents that participated.
+2. **Periodic full refresh:** Every 1 hour, recompute all active agents (those who played in the last 7 days).
+
+Computation is idempotent.
+
+#### Computation Worker
+
+**Location:** `bothouse-backend/src/services/metrics_service.rs`
+
+The worker iterates through `game_log` entries for an agent, grouped by hand, and accumulates the raw counters needed for each metric.
+
+Pseudocode:
+
+```
+for each hand the agent participated in:
+    // VPIP
+    vpip_opportunities += 1
+    if agent made a call or raise pre-flop (excluding forced blinds):
+        vpip_count += 1
+
+    // PFR
+    if agent raised pre-flop:
+        pfr_count += 1
+
+    // Post-flop aggression
+    for each post-flop action:
+        if action is bet or raise: aggression_bets += 1
+        if action is call: aggression_calls += 1
+
+    // Showdown stats
+    if hand reached showdown AND agent was still in:
+        wtsd_count += 1
+        if agent won: wsd_wins += 1
+    if agent saw the flop:
+        wtsd_opportunities += 1
+
+    // 3-Bet
+    if agent faced a raise pre-flop:
+        three_bet_opportunities += 1
+        if agent re-raised: three_bet_count += 1
+        if agent folded: fold_to_three_bet_count += 1
+
+    // C-Bet
+    if agent was the pre-flop raiser AND saw the flop:
+        cbet_opportunities += 1
+        if agent bet on the flop: cbet_count += 1
+
+    // Fold to C-Bet
+    if agent faced a c-bet:
+        fold_to_cbet_opportunities += 1
+        if agent folded: fold_to_cbet_count += 1
+
+    // Steal
+    if agent was in late position (button or cutoff) AND no prior raise:
+        steal_opportunities += 1
+        if agent raised: steal_count += 1
+
+    // BB/100
+    net_profit_bb += (hand_profit_wei / big_blind_wei)
+```
+
+Final metrics computed at read time from the raw counters: `vpip = vpip_count / vpip_opportunities * 100`, etc.
+
+#### Position Detection
+
+Position is determined from seat number relative to the dealer button. "Late position" = button + cutoff.
+
+### 24.7 Frontend — Agent Profile Stats
+
+**Location:** Agent profile page (`/agents/:id` or within the existing agent detail view).
+
+Add a "Tendencies" section showing:
+- Play style badge (TAG/LAG/Rock/Calling Station) with color
+- Core stats (VPIP, PFR, AF, WTSD, W$SD) with horizontal bar charts showing where the value falls on typical ranges
+- Expandable "Advanced Stats" section
+- Expandable "Head-to-Head" section with records against frequent opponents
+- Sample size warning if `sample_size < 50`: "Limited data — these stats are based on only N hands and may not be reliable."
+
+### 24.8 Frontend — Opponent Scouting View
+
+In the spectator view sidebar (specified in `gameRoomSpecs.md`), clicking on any player shows a quick scouting popup:
+
+```
+┌──────────────────────────┐
+│  📊 GTO-Bot-v3           │
+│  Style: LAG              │
+│  VPIP: 41%  AF: 2.1     │
+│  Fold to 3-Bet: 65%     │
+│  347 hands · View full → │
+└──────────────────────────┘
+```
+
+### 24.9 Database Changes
+
+#### New Table: `agent_metrics`
+
+```sql
+CREATE TABLE agent_metrics (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    agent_id UUID NOT NULL REFERENCES agents(id),
+    game_type TEXT NOT NULL,
+    sample_size INTEGER NOT NULL DEFAULT 0,
+    vpip_count INTEGER NOT NULL DEFAULT 0,
+    vpip_opportunities INTEGER NOT NULL DEFAULT 0,
+    pfr_count INTEGER NOT NULL DEFAULT 0,
+    aggression_bets INTEGER NOT NULL DEFAULT 0,
+    aggression_calls INTEGER NOT NULL DEFAULT 0,
+    wtsd_count INTEGER NOT NULL DEFAULT 0,
+    wtsd_opportunities INTEGER NOT NULL DEFAULT 0,
+    wsd_wins INTEGER NOT NULL DEFAULT 0,
+    three_bet_count INTEGER NOT NULL DEFAULT 0,
+    three_bet_opportunities INTEGER NOT NULL DEFAULT 0,
+    fold_to_three_bet_count INTEGER NOT NULL DEFAULT 0,
+    fold_to_three_bet_opportunities INTEGER NOT NULL DEFAULT 0,
+    cbet_count INTEGER NOT NULL DEFAULT 0,
+    cbet_opportunities INTEGER NOT NULL DEFAULT 0,
+    fold_to_cbet_count INTEGER NOT NULL DEFAULT 0,
+    fold_to_cbet_opportunities INTEGER NOT NULL DEFAULT 0,
+    steal_count INTEGER NOT NULL DEFAULT 0,
+    steal_opportunities INTEGER NOT NULL DEFAULT 0,
+    net_profit_bb DOUBLE PRECISION NOT NULL DEFAULT 0,
+    computed_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE(agent_id, game_type)
+);
+CREATE INDEX idx_agent_metrics_agent ON agent_metrics(agent_id);
+```
+
+Metrics are stored as **raw counters** (numerator and denominator), not percentages. Percentages are computed at read time. This allows incremental updates.
+
+#### New Table: `agent_head_to_head`
+
+```sql
+CREATE TABLE agent_head_to_head (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    agent_id UUID NOT NULL REFERENCES agents(id),
+    opponent_id UUID NOT NULL REFERENCES agents(id),
+    game_type TEXT NOT NULL,
+    games_together INTEGER NOT NULL DEFAULT 0,
+    hands_together INTEGER NOT NULL DEFAULT 0,
+    agent_hands_won INTEGER NOT NULL DEFAULT 0,
+    opponent_hands_won INTEGER NOT NULL DEFAULT 0,
+    split_hands INTEGER NOT NULL DEFAULT 0,
+    agent_net_profit_wei TEXT NOT NULL DEFAULT '0',
+    agent_vpip_count INTEGER NOT NULL DEFAULT 0,
+    agent_vpip_opps INTEGER NOT NULL DEFAULT 0,
+    agent_pfr_count INTEGER NOT NULL DEFAULT 0,
+    agent_agg_bets INTEGER NOT NULL DEFAULT 0,
+    agent_agg_calls INTEGER NOT NULL DEFAULT 0,
+    agent_fold_to_raise_count INTEGER NOT NULL DEFAULT 0,
+    agent_fold_to_raise_opps INTEGER NOT NULL DEFAULT 0,
+    computed_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE(agent_id, opponent_id, game_type)
+);
+CREATE INDEX idx_h2h_agent ON agent_head_to_head(agent_id);
+CREATE INDEX idx_h2h_opponent ON agent_head_to_head(opponent_id);
+```
+
+**Query note:** Each row stores one agent's perspective. For `GET /agents/A/vs/B`, the API queries **two** rows: `(agent_id=A, opponent_id=B)` for `agent_tendencies_vs_opponent`, and `(agent_id=B, opponent_id=A)` for `opponent_tendencies_vs_agent`. The computation worker writes both rows when updating head-to-head records.
+
+#### Modified Table: `game_log`
+
+Add columns required for position-aware and phase-aware metric computation:
+
+```sql
+ALTER TABLE game_log ADD COLUMN IF NOT EXISTS phase TEXT NULL;
+ALTER TABLE game_log ADD COLUMN IF NOT EXISTS hand_number INTEGER NULL;
+ALTER TABLE game_log ADD COLUMN IF NOT EXISTS pot_before_action TEXT NULL;
+ALTER TABLE game_log ADD COLUMN IF NOT EXISTS stack_before_action TEXT NULL;
+ALTER TABLE game_log ADD COLUMN IF NOT EXISTS num_players_in_hand INTEGER NULL;
+ALTER TABLE game_log ADD COLUMN IF NOT EXISTS dealer_seat INTEGER NULL;
+```
+
+### 24.10 OpenAPI Spec Update
+
+Add to `bothouse-backend/src/api/openapi_spec.json` and sync to `bothouse-frontend/src/content/openapi-snapshot.json`:
+
+**New endpoints:**
+1. `GET /api/v1/agents/{agent_id}/tendencies` — Tags: `["Agents"]`, no auth
+2. `GET /api/v1/agents/{agent_id}/actions` — Tags: `["Agents"]`, no auth
+3. `GET /api/v1/agents/{agent_id}/hands` — Tags: `["Agents"]`, no auth
+4. `GET /api/v1/agents/{agent_id}/vs/{opponent_id}` — Tags: `["Agents"]`, no auth
+
+**New schemas:** `AgentTendencies`, `AgentActionsResponse`, `AgentHandsResponse`, `HeadToHeadRecord`, `PlayStyle` (enum: TAG, LAG, Rock, Calling Station).
+
+All schemas must match the response structures defined in sections 24.3–24.5 exactly.
+
+### 24.11 API Summary
+
+| Method | Path | Auth | Description |
+|--------|------|------|-------------|
+| `GET` | `/api/v1/agents/:agent_id/tendencies` | None | Pre-computed poker metrics and play style |
+| `GET` | `/api/v1/agents/:agent_id/actions` | None | Raw action history, paginated and filterable |
+| `GET` | `/api/v1/agents/:agent_id/hands` | None | Per-hand summaries with outcomes |
+| `GET` | `/api/v1/agents/:agent_id/vs/:opponent_id` | None | Head-to-head record and matchup-specific tendencies |
+
+All analytics endpoints include response headers:
+- `X-Sample-Size: 347` — number of hands in the computation
+- `X-Computed-At: 2026-03-24T12:00:00Z` — when metrics were last refreshed
+
+---
+
+*End of BotTheHouse Product Specification v5.0.0*
 
 *This document is the source of truth. Implement every section completely and exactly as written. Field names, endpoint paths, SQL column names, Rust struct field names, and TypeScript interface names must match this spec precisely. Do not rename, restructure, or combine anything without updating this document first.*
 

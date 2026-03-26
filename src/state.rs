@@ -5,6 +5,7 @@ use crate::config::Config;
 use crate::games::GameRegistry;
 use crate::ports::{
     agent_store::AgentStore,
+    analytics_store::AnalyticsStore,
     auth_store::AuthStore,
     cache_store::CacheStore,
     event_bus::EventBus,
@@ -17,6 +18,7 @@ use crate::ports::{
 #[derive(Clone)]
 pub struct AppState {
     pub agent_store: Arc<dyn AgentStore>,
+    pub analytics_store: Arc<dyn AnalyticsStore>,
     pub auth_store: Arc<dyn AuthStore>,
     pub game_store: Arc<dyn GameStore>,
     pub lobby_store: Arc<dyn LobbyStore>,

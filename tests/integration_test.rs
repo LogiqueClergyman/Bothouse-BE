@@ -6,6 +6,7 @@ use tokio::sync::watch;
 
 use bothouse_backend::adapters::memory::{
     agent_store::MemoryAgentStore,
+    analytics_store::MemoryAnalyticsStore,
     auth_store::MemoryAuthStore,
     cache_store::MemoryCacheStore,
     event_bus::MemoryEventBus,
@@ -89,6 +90,7 @@ fn make_test_state() -> AppState {
     AppState {
         auth_store: Arc::new(MemoryAuthStore::new()),
         agent_store: Arc::new(MemoryAgentStore::new()),
+        analytics_store: Arc::new(MemoryAnalyticsStore::new()),
         game_store: Arc::new(MemoryGameStore::new()),
         lobby_store: Arc::new(MemoryLobbyStore::new()),
         cache: Arc::new(MemoryCacheStore::new()),
