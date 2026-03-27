@@ -12,6 +12,7 @@ use crate::ports::auth_store::AuthStore;
 pub struct MemoryAuthStore {
     users: RwLock<HashMap<Uuid, User>>,
     sessions: RwLock<HashMap<Uuid, Session>>,
+    public_keys: RwLock<HashMap<String, String>>,  // wallet → public_key_hex
 }
 
 impl MemoryAuthStore {
@@ -91,5 +92,14 @@ impl AuthStore for MemoryAuthStore {
             s.revoked = true;
         }
         Ok(())
+    }
+
+    async fn set_public_key(&self, wallet: &str, public_key_hex: &str) -> Result<(), AppError> {
+        self.public_keys.write().unwrap().insert(wallet.to_string(), public_key_hex.to_string());
+        Ok(())
+    }
+
+    async fn get_public_key(&self, wallet: &str) -> Result<Option<String>, AppError> {
+        Ok(self.public_keys.read().unwrap().get(wallet).cloned())
     }
 }

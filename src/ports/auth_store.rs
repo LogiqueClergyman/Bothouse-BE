@@ -21,4 +21,8 @@ pub trait AuthStore: Send + Sync + 'static {
         token: &str,
     ) -> Result<Option<Session>, AppError>;
     async fn revoke_session(&self, session_id: Uuid) -> Result<(), AppError>;
+    /// Store a public key for a wallet (used by OneChain Ed25519 auth).
+    async fn set_public_key(&self, wallet: &str, public_key_hex: &str) -> Result<(), AppError>;
+    /// Retrieve the stored public key for a wallet (OneChain Ed25519 verification).
+    async fn get_public_key(&self, wallet: &str) -> Result<Option<String>, AppError>;
 }

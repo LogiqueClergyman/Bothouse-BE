@@ -87,7 +87,7 @@ pub async fn get_game_state(
 #[derive(Deserialize)]
 pub struct ActionBody {
     pub action: String,
-    pub amount_wei: Option<String>,
+    pub amount_atomic: Option<String>,
     pub turn_number: i64,
     pub signature: String,
 }
@@ -100,7 +100,7 @@ pub async fn submit_action(
 ) -> Result<Json<serde_json::Value>, AppError> {
     let req = ActionRequest {
         action: body.action,
-        amount_wei: body.amount_wei,
+        amount_atomic: body.amount_atomic,
         turn_number: body.turn_number,
         signature: body.signature,
     };

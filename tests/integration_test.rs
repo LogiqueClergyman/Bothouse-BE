@@ -80,6 +80,7 @@ fn make_test_state() -> AppState {
         cors_origins: vec![],
         base_url: "http://localhost:8080".to_string(),
         testnet_base_url: "http://localhost:8080".to_string(),
+        chain_type: "evm".to_string(),
     };
 
     let mut registry = GameRegistry::new();

@@ -10,6 +10,7 @@ pub struct Config {
     pub bcrypt_cost: u32,
     pub house_signing_key: String,
     pub turn_timeout_ms: u64,
+    pub chain_type: String,
     pub settlement_rpc_url: String,
     pub settlement_private_key: String,
     pub escrow_contract_address: String,
@@ -49,6 +50,8 @@ impl Config {
                 .unwrap_or_else(|_| "10000".to_string())
                 .parse()
                 .context("TURN_TIMEOUT_MS must be a number")?,
+            chain_type: std::env::var("CHAIN_TYPE")
+                .unwrap_or_else(|_| "evm".to_string()),
             settlement_rpc_url: std::env::var("SETTLEMENT_RPC_URL")
                 .context("SETTLEMENT_RPC_URL must be set")?,
             settlement_private_key: std::env::var("SETTLEMENT_PRIVATE_KEY")

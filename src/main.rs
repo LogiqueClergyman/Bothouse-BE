@@ -1,4 +1,6 @@
 use bothouse_backend::adapters::ethereum::settlement::EthereumSettlement;
+use bothouse_backend::adapters::onechain::settlement::OneChainSettlement;
+use bothouse_backend::ports::settlement_port::SettlementPort;
 use bothouse_backend::adapters::redis::cache_store::RedisCache;
 use bothouse_backend::adapters::redis::event_bus::RedisEventBus;
 use bothouse_backend::adapters::postgres::agent_store::PgAgentStore;
@@ -58,12 +60,21 @@ async fn main() -> anyhow::Result<()> {
     let lobby_store = Arc::new(PgLobbyStore::new(pool.clone()));
     let cache = Arc::new(RedisCache::new(redis_conn.clone()));
     let event_bus = Arc::new(RedisEventBus::new(redis_client, redis_conn));
-    let settlement = Arc::new(EthereumSettlement::new(
-        config.settlement_rpc_url.clone(),
-        config.settlement_private_key.clone(),
-        config.escrow_contract_address.clone(),
-        config.chain_id,
-    ));
+    let settlement: Arc<dyn SettlementPort> = match config.chain_type.as_str() {
+        "evm" => Arc::new(EthereumSettlement::new(
+            config.settlement_rpc_url.clone(),
+            config.settlement_private_key.clone(),
+            config.escrow_contract_address.clone(),
+            config.chain_id,
+        )),
+        "onechain" => Arc::new(OneChainSettlement::new(
+            config.settlement_rpc_url.clone(),
+            config.settlement_private_key.clone(),
+            config.escrow_contract_address.clone(),  // package ID for OneChain
+            config.house_wallet_address.clone(),     // rake recipient
+        )),
+        other => panic!("Unknown CHAIN_TYPE: '{}'. Must be 'evm' or 'onechain'.", other),
+    };
     let http_client = Arc::new(ReqwestHttpClient::new());
 
     // 8. Build GameRegistry

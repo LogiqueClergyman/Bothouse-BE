@@ -23,7 +23,7 @@ struct RoomRow {
     game_type: String,
     game_version: String,
     status: RoomStatus,
-    buy_in_wei: sqlx::types::BigDecimal,
+    buy_in_atomic: sqlx::types::BigDecimal,
     max_players: i16,
     min_players: i16,
     created_at: DateTime<Utc>,
@@ -38,7 +38,7 @@ impl From<RoomRow> for Room {
             game_type: row.game_type,
             game_version: row.game_version,
             status: row.status,
-            buy_in_wei: row.buy_in_wei.to_string(),
+            buy_in_atomic: row.buy_in_atomic.to_string(),
             max_players: row.max_players,
             min_players: row.min_players,
             created_at: row.created_at,
@@ -80,16 +80,16 @@ impl LobbyStore for PgLobbyStore {
     async fn create_room(&self, room: &Room) -> Result<Room, AppError> {
         let row = sqlx::query_as::<_, RoomRow>(
             r#"
-            INSERT INTO rooms (room_id, game_type, game_version, status, buy_in_wei, max_players, min_players, created_at)
+            INSERT INTO rooms (room_id, game_type, game_version, status, buy_in_atomic, max_players, min_players, created_at)
             VALUES ($1, $2, $3, $4, $5::numeric, $6, $7, $8)
-            RETURNING room_id, game_type, game_version, status, buy_in_wei, max_players, min_players, created_at, started_at, completed_at
+            RETURNING room_id, game_type, game_version, status, buy_in_atomic, max_players, min_players, created_at, started_at, completed_at
             "#,
         )
         .bind(room.room_id)
         .bind(&room.game_type)
         .bind(&room.game_version)
         .bind(&room.status)
-        .bind(&room.buy_in_wei)
+        .bind(&room.buy_in_atomic)
         .bind(room.max_players)
         .bind(room.min_players)
         .bind(room.created_at)
@@ -101,7 +101,7 @@ impl LobbyStore for PgLobbyStore {
 
     async fn get_room_by_id(&self, room_id: Uuid) -> Result<Option<Room>, AppError> {
         let row = sqlx::query_as::<_, RoomRow>(
-            "SELECT room_id, game_type, game_version, status, buy_in_wei, max_players, min_players, created_at, started_at, completed_at FROM rooms WHERE room_id=$1",
+            "SELECT room_id, game_type, game_version, status, buy_in_atomic, max_players, min_players, created_at, started_at, completed_at FROM rooms WHERE room_id=$1",
         )
         .bind(room_id)
         .fetch_optional(&self.pool)
@@ -119,7 +119,7 @@ impl LobbyStore for PgLobbyStore {
     ) -> Result<Vec<Room>, AppError> {
         let rows = sqlx::query_as::<_, RoomRow>(
             r#"
-            SELECT room_id, game_type, game_version, status, buy_in_wei, max_players, min_players, created_at, started_at, completed_at
+            SELECT room_id, game_type, game_version, status, buy_in_atomic, max_players, min_players, created_at, started_at, completed_at
             FROM rooms
             WHERE ($1::room_status IS NULL OR status = $1)
               AND ($2::text IS NULL OR game_type = $2)

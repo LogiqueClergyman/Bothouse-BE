@@ -358,6 +358,7 @@ mod tests {
             bcrypt_cost: 4,
             house_signing_key: "deadbeef".to_string(),
             turn_timeout_ms: 10000,
+            chain_type: "evm".to_string(),
             settlement_rpc_url: "".to_string(),
             settlement_private_key: "".to_string(),
             escrow_contract_address: "0x0000000000000000000000000000000000000000".to_string(),

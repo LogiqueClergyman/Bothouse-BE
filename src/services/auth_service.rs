@@ -6,17 +6,29 @@ use crate::domain::auth::Claims;
 use crate::errors::AppError;
 use crate::state::AppState;
 
-fn is_valid_evm_address(addr: &str) -> bool {
-    addr.len() == 42
-        && addr.starts_with("0x")
-        && addr[2..].chars().all(|c| c.is_ascii_hexdigit())
+fn is_valid_wallet_address(addr: &str, chain_type: &str) -> bool {
+    match chain_type {
+        "evm" => {
+            // 0x + 40 hex chars
+            addr.len() == 42
+                && addr.starts_with("0x")
+                && addr[2..].chars().all(|c| c.is_ascii_hexdigit())
+        }
+        "onechain" => {
+            // 0x + 64 hex chars (32-byte Sui address)
+            addr.len() == 66
+                && addr.starts_with("0x")
+                && addr[2..].chars().all(|c| c.is_ascii_hexdigit())
+        }
+        _ => false,
+    }
 }
 
 pub async fn generate_nonce(
     wallet: &str,
     state: &AppState,
 ) -> Result<(String, chrono::DateTime<Utc>), AppError> {
-    if !is_valid_evm_address(wallet) {
+    if !is_valid_wallet_address(wallet, &state.config.chain_type) {
         return Err(AppError::BadRequest("Invalid wallet address".to_string()));
     }
     let nonce = {
@@ -46,11 +58,25 @@ pub async fn verify_signature(
         .await?
         .ok_or_else(|| AppError::Unauthorized("NONCE_EXPIRED".to_string()))?;
 
-    // Recover signer from EIP-191 personal_sign
-    let recovered = recover_signer(&nonce, signature)
-        .map_err(|_| AppError::Unauthorized("INVALID_SIGNATURE".to_string()))?;
+    // Verify signature — dispatch based on chain type
+    let valid = match state.config.chain_type.as_str() {
+        "evm" => {
+            let recovered = recover_signer(&nonce, signature)
+                .map_err(|_| AppError::Unauthorized("INVALID_SIGNATURE".to_string()))?;
+            recovered.to_lowercase() == wallet_lower
+        }
+        "onechain" => {
+            // Ed25519: look up the agent's registered public key and verify.
+            // The agent must have registered first; their public key is derived from the address
+            // and stored at registration time.
+            // For nonce auth, we verify the signature over the nonce bytes using the stored pubkey.
+            verify_onechain_signature(&nonce, signature, &wallet_lower, state).await
+                .map_err(|_| AppError::Unauthorized("INVALID_SIGNATURE".to_string()))?
+        }
+        _ => return Err(AppError::Unauthorized("UNSUPPORTED_CHAIN".to_string())),
+    };
 
-    if recovered.to_lowercase() != wallet_lower {
+    if !valid {
         return Err(AppError::Unauthorized("INVALID_SIGNATURE".to_string()));
     }
 
@@ -134,6 +160,27 @@ pub fn issue_jwt(
     .map_err(|e| AppError::Internal(e.into()))
 }
 
+async fn verify_onechain_signature(
+    nonce: &str,
+    signature: &str,
+    wallet: &str,
+    state: &AppState,
+) -> Result<bool, anyhow::Error> {
+    // Look up stored public key for this wallet from the auth store.
+    // The public key must have been stored when the agent registered their wallet.
+    let public_key_hex = state
+        .auth_store
+        .get_public_key(wallet)
+        .await?
+        .ok_or_else(|| anyhow::anyhow!("No public key registered for wallet {}", wallet))?;
+
+    crate::adapters::onechain::settlement::verify_ed25519_signature(
+        nonce.as_bytes(),
+        signature,
+        &public_key_hex,
+    )
+}
+
 fn recover_signer(message: &str, signature: &str) -> Result<String, anyhow::Error> {
     use alloy::primitives::Signature;
     use alloy::signers::SignerSync;
@@ -172,6 +219,7 @@ mod tests {
             bcrypt_cost: 4,
             house_signing_key: "deadbeef".to_string(),
             turn_timeout_ms: 10000,
+            chain_type: "evm".to_string(),
             settlement_rpc_url: "".to_string(),
             settlement_private_key: "".to_string(),
             escrow_contract_address: "0x0000000000000000000000000000000000000000".to_string(),

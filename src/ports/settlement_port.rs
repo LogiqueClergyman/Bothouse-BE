@@ -10,7 +10,7 @@ pub trait SettlementPort: Send + Sync + 'static {
         &self,
         game_id: Uuid,
         winners: &[WinnerEntry],
-        rake_wei: &str,
+        rake_atomic: &str,
         result_hash: &str,
     ) -> Result<String, AppError>;
 
@@ -20,6 +20,6 @@ pub trait SettlementPort: Send + Sync + 'static {
         &self,
         game_id: Uuid,
         wallet: &str,
-        buy_in_wei: &str,
+        buy_in_atomic: &str,
     ) -> Result<bool, AppError>;
 }

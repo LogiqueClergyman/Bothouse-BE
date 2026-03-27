@@ -24,6 +24,7 @@ chrono = { version = "0.4", features = ["serde"] }
 jsonwebtoken = "9"
 bcrypt = "0.15"
 alloy = { version = "0.3", features = ["full"] }
+ed25519-dalek = { version = "2", features = ["rand_core"] }
 sha2 = "0.10"
 sha3 = "0.10"
 hex = "0.4"

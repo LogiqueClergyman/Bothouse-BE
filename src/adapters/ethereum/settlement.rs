@@ -39,7 +39,7 @@ impl SettlementPort for EthereumSettlement {
         &self,
         game_id: Uuid,
         winners: &[WinnerEntry],
-        _rake_wei: &str,
+        _rake_atomic: &str,
         result_hash: &str,
     ) -> Result<String, AppError> {
         use alloy::primitives::{Address, B256, U256};
@@ -98,7 +98,7 @@ impl SettlementPort for EthereumSettlement {
         let amounts: Vec<U256> = winners
             .iter()
             .map(|w| {
-                U256::from_str(&w.amount_won_wei)
+                U256::from_str(&w.amount_won_atomic)
                     .map_err(|e| AppError::Internal(anyhow::anyhow!("{}", e)))
             })
             .collect::<Result<_, _>>()?;
@@ -149,7 +149,7 @@ impl SettlementPort for EthereumSettlement {
         &self,
         game_id: Uuid,
         wallet: &str,
-        _buy_in_wei: &str,
+        _buy_in_atomic: &str,
     ) -> Result<bool, AppError> {
         use alloy::providers::{Provider, ProviderBuilder};
         use alloy::primitives::{Address, B256};

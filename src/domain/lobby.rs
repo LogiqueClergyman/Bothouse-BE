@@ -19,7 +19,7 @@ pub struct Room {
     pub game_type: String,
     pub game_version: String,
     pub status: RoomStatus,
-    pub buy_in_wei: String,
+    pub buy_in_atomic: String,
     pub max_players: i16,
     pub min_players: i16,
     pub created_at: DateTime<Utc>,

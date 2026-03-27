@@ -30,7 +30,7 @@ pub async fn initiate(result: &GameResult, state: &AppState) -> Result<(), AppEr
         .settle(
             result.game_id,
             &result.winners,
-            &result.rake_wei,
+            &result.rake_atomic,
             &result.signed_result_hash,
         )
         .await

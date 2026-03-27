@@ -147,4 +147,27 @@ impl AuthStore for PgAuthStore {
             .map_err(|e| AppError::Internal(e.into()))?;
         Ok(())
     }
+
+    async fn set_public_key(&self, wallet: &str, public_key_hex: &str) -> Result<(), AppError> {
+        sqlx::query(
+            "INSERT INTO wallet_public_keys (wallet, public_key_hex) VALUES ($1, $2) ON CONFLICT (wallet) DO UPDATE SET public_key_hex = EXCLUDED.public_key_hex"
+        )
+        .bind(wallet)
+        .bind(public_key_hex)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| AppError::Internal(e.into()))?;
+        Ok(())
+    }
+
+    async fn get_public_key(&self, wallet: &str) -> Result<Option<String>, AppError> {
+        let row: Option<(String,)> = sqlx::query_as(
+            "SELECT public_key_hex FROM wallet_public_keys WHERE wallet = $1"
+        )
+        .bind(wallet)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(|e| AppError::Internal(e.into()))?;
+        Ok(row.map(|(k,)| k))
+    }
 }

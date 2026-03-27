@@ -57,7 +57,7 @@ struct GamePlayerRow {
     agent_id: Uuid,
     wallet_address: String,
     seat_number: i16,
-    stack_wei: sqlx::types::BigDecimal,
+    stack_atomic: sqlx::types::BigDecimal,
     status: PlayerStatus,
     consecutive_timeouts: i16,
 }
@@ -69,7 +69,7 @@ impl From<GamePlayerRow> for GamePlayer {
             agent_id: row.agent_id,
             wallet_address: row.wallet_address,
             seat_number: row.seat_number,
-            stack_wei: row.stack_wei.to_string(),
+            stack_atomic: row.stack_atomic.to_string(),
             status: row.status,
             consecutive_timeouts: row.consecutive_timeouts,
         }
@@ -83,7 +83,7 @@ struct GameLogRow {
     timestamp: DateTime<Utc>,
     agent_id: Option<Uuid>,
     action: String,
-    amount_wei: Option<sqlx::types::BigDecimal>,
+    amount_atomic: Option<sqlx::types::BigDecimal>,
     state_hash: String,
 }
 
@@ -95,7 +95,7 @@ impl From<GameLogRow> for GameLogEntry {
             timestamp: row.timestamp,
             agent_id: row.agent_id,
             action: row.action,
-            amount_wei: row.amount_wei.map(|d| d.to_string()),
+            amount_atomic: row.amount_atomic.map(|d| d.to_string()),
             state_hash: row.state_hash,
         }
     }
@@ -207,13 +207,13 @@ impl GameStore for PgGameStore {
 
     async fn create_player(&self, player: &GamePlayer) -> Result<(), AppError> {
         sqlx::query(
-            "INSERT INTO game_players (game_id, agent_id, wallet_address, seat_number, stack_wei, status, consecutive_timeouts) VALUES ($1, $2, $3, $4, $5::numeric, $6, $7)",
+            "INSERT INTO game_players (game_id, agent_id, wallet_address, seat_number, stack_atomic, status, consecutive_timeouts) VALUES ($1, $2, $3, $4, $5::numeric, $6, $7)",
         )
         .bind(player.game_id)
         .bind(player.agent_id)
         .bind(&player.wallet_address)
         .bind(player.seat_number)
-        .bind(&player.stack_wei)
+        .bind(&player.stack_atomic)
         .bind(&player.status)
         .bind(player.consecutive_timeouts)
         .execute(&self.pool)
@@ -224,7 +224,7 @@ impl GameStore for PgGameStore {
 
     async fn get_players_by_game(&self, game_id: Uuid) -> Result<Vec<GamePlayer>, AppError> {
         let rows = sqlx::query_as::<_, GamePlayerRow>(
-            "SELECT game_id, agent_id, wallet_address, seat_number, stack_wei, status, consecutive_timeouts FROM game_players WHERE game_id=$1 ORDER BY seat_number",
+            "SELECT game_id, agent_id, wallet_address, seat_number, stack_atomic, status, consecutive_timeouts FROM game_players WHERE game_id=$1 ORDER BY seat_number",
         )
         .bind(game_id)
         .fetch_all(&self.pool)
@@ -235,11 +235,11 @@ impl GameStore for PgGameStore {
 
     async fn update_player(&self, player: &GamePlayer) -> Result<(), AppError> {
         sqlx::query(
-            "UPDATE game_players SET stack_wei=$3::numeric, status=$4, consecutive_timeouts=$5 WHERE game_id=$1 AND agent_id=$2",
+            "UPDATE game_players SET stack_atomic=$3::numeric, status=$4, consecutive_timeouts=$5 WHERE game_id=$1 AND agent_id=$2",
         )
         .bind(player.game_id)
         .bind(player.agent_id)
-        .bind(&player.stack_wei)
+        .bind(&player.stack_atomic)
         .bind(&player.status)
         .bind(player.consecutive_timeouts)
         .execute(&self.pool)
@@ -250,14 +250,14 @@ impl GameStore for PgGameStore {
 
     async fn append_log_entry(&self, entry: &GameLogEntry) -> Result<(), AppError> {
         sqlx::query(
-            "INSERT INTO game_log (game_id, sequence, timestamp, agent_id, action, amount_wei, state_hash) VALUES ($1, $2, $3, $4, $5, $6::numeric, $7)",
+            "INSERT INTO game_log (game_id, sequence, timestamp, agent_id, action, amount_atomic, state_hash) VALUES ($1, $2, $3, $4, $5, $6::numeric, $7)",
         )
         .bind(entry.game_id)
         .bind(entry.sequence)
         .bind(entry.timestamp)
         .bind(entry.agent_id)
         .bind(&entry.action)
-        .bind(&entry.amount_wei)
+        .bind(&entry.amount_atomic)
         .bind(&entry.state_hash)
         .execute(&self.pool)
         .await
@@ -267,7 +267,7 @@ impl GameStore for PgGameStore {
 
     async fn get_log_by_game(&self, game_id: Uuid) -> Result<Vec<GameLogEntry>, AppError> {
         let rows = sqlx::query_as::<_, GameLogRow>(
-            "SELECT game_id, sequence, timestamp, agent_id, action, amount_wei, state_hash FROM game_log WHERE game_id=$1 ORDER BY sequence",
+            "SELECT game_id, sequence, timestamp, agent_id, action, amount_atomic, state_hash FROM game_log WHERE game_id=$1 ORDER BY sequence",
         )
         .bind(game_id)
         .fetch_all(&self.pool)
@@ -282,12 +282,12 @@ impl GameStore for PgGameStore {
         let losers = serde_json::to_value(&result.losers)
             .map_err(|e| AppError::Internal(e.into()))?;
         sqlx::query(
-            "INSERT INTO game_results (game_id, winners, losers, rake_wei, rake_rate_bps, signed_result_hash) VALUES ($1, $2, $3, $4::numeric, $5, $6)",
+            "INSERT INTO game_results (game_id, winners, losers, rake_atomic, rake_rate_bps, signed_result_hash) VALUES ($1, $2, $3, $4::numeric, $5, $6)",
         )
         .bind(result.game_id)
         .bind(winners)
         .bind(losers)
-        .bind(&result.rake_wei)
+        .bind(&result.rake_atomic)
         .bind(result.rake_rate_bps)
         .bind(&result.signed_result_hash)
         .execute(&self.pool)
@@ -298,7 +298,7 @@ impl GameStore for PgGameStore {
 
     async fn get_result_by_game(&self, game_id: Uuid) -> Result<Option<GameResult>, AppError> {
         let row = sqlx::query(
-            "SELECT game_id, winners, losers, rake_wei, rake_rate_bps, signed_result_hash FROM game_results WHERE game_id=$1",
+            "SELECT game_id, winners, losers, rake_atomic, rake_rate_bps, signed_result_hash FROM game_results WHERE game_id=$1",
         )
         .bind(game_id)
         .fetch_optional(&self.pool)
@@ -312,7 +312,7 @@ impl GameStore for PgGameStore {
                 let game_id: Uuid = r.get("game_id");
                 let winners: serde_json::Value = r.get("winners");
                 let losers: serde_json::Value = r.get("losers");
-                let rake: sqlx::types::BigDecimal = r.get("rake_wei");
+                let rake: sqlx::types::BigDecimal = r.get("rake_atomic");
                 let rake_rate_bps: i16 = r.get("rake_rate_bps");
                 let signed_result_hash: String = r.get("signed_result_hash");
 
@@ -325,7 +325,7 @@ impl GameStore for PgGameStore {
                     game_id,
                     winners,
                     losers,
-                    rake_wei: rake.to_string(),
+                    rake_atomic: rake.to_string(),
                     rake_rate_bps,
                     signed_result_hash,
                 }))

@@ -37,11 +37,11 @@ impl Game for TexasHoldemV1 {
     fn init(&self, players: Vec<GamePlayer>, seed: [u8; 32]) -> Result<Value, DE> {
         let buy_in: u128 = players
             .first()
-            .and_then(|p| p.stack_wei.parse().ok())
+            .and_then(|p| p.stack_atomic.parse().ok())
             .unwrap_or(0);
 
-        let small_blind_wei = buy_in / 100;
-        let big_blind_wei = buy_in / 50;
+        let small_blind_atomic = buy_in / 100;
+        let big_blind_atomic = buy_in / 50;
 
         let mut deck = shuffle_deck(seed);
 
@@ -59,12 +59,12 @@ impl Game for TexasHoldemV1 {
 
             let position = compute_position(p.seat_number, dealer_seat, n);
 
-            let stack: u128 = p.stack_wei.parse().unwrap_or(0);
+            let stack: u128 = p.stack_atomic.parse().unwrap_or(0);
             let (stack_after_blind, bet_this_round) = if p.seat_number == small_blind_seat {
-                let sb = small_blind_wei.min(stack);
+                let sb = small_blind_atomic.min(stack);
                 (stack - sb, sb)
             } else if p.seat_number == big_blind_seat {
-                let bb = big_blind_wei.min(stack);
+                let bb = big_blind_atomic.min(stack);
                 (stack - bb, bb)
             } else {
                 (stack, 0)
@@ -74,32 +74,32 @@ impl Game for TexasHoldemV1 {
                 "agent_id": p.agent_id.to_string(),
                 "seat_number": p.seat_number,
                 "hole_cards": [hole1, hole2],
-                "stack_wei": stack_after_blind.to_string(),
+                "stack_atomic": stack_after_blind.to_string(),
                 "status": "active",
                 "position": position,
-                "bet_this_round_wei": bet_this_round.to_string(),
+                "bet_this_round_atomic": bet_this_round.to_string(),
                 "consecutive_timeouts": 0,
             }));
         }
 
-        let pot = small_blind_wei + big_blind_wei;
+        let pot = small_blind_atomic + big_blind_atomic;
 
         Ok(json!({
             "phase": "pre_flop",
             "deck": deck,
             "community_cards": [],
             "players": player_states,
-            "pot_wei": pot.to_string(),
+            "pot_atomic": pot.to_string(),
             "side_pots": [],
-            "current_bet_wei": big_blind_wei.to_string(),
+            "current_bet_atomic": big_blind_atomic.to_string(),
             "dealer_seat": dealer_seat,
             "small_blind_seat": small_blind_seat,
             "big_blind_seat": big_blind_seat,
             "action_on_seat": first_to_act,
             "turn_number": 1,
-            "small_blind_wei": small_blind_wei.to_string(),
-            "big_blind_wei": big_blind_wei.to_string(),
-            "buy_in_wei": buy_in.to_string(),
+            "small_blind_atomic": small_blind_atomic.to_string(),
+            "big_blind_atomic": big_blind_atomic.to_string(),
+            "buy_in_atomic": buy_in.to_string(),
             "last_aggressor_seat": big_blind_seat,
         }))
     }
@@ -157,10 +157,10 @@ impl Game for TexasHoldemV1 {
             return Ok(vec![]);
         }
 
-        let stack: u128 = player["stack_wei"].as_str().unwrap_or("0").parse().unwrap_or(0);
-        let bet_this_round: u128 = player["bet_this_round_wei"].as_str().unwrap_or("0").parse().unwrap_or(0);
-        let current_bet: u128 = state["current_bet_wei"].as_str().unwrap_or("0").parse().unwrap_or(0);
-        let big_blind: u128 = state["big_blind_wei"].as_str().unwrap_or("0").parse().unwrap_or(0);
+        let stack: u128 = player["stack_atomic"].as_str().unwrap_or("0").parse().unwrap_or(0);
+        let bet_this_round: u128 = player["bet_this_round_atomic"].as_str().unwrap_or("0").parse().unwrap_or(0);
+        let current_bet: u128 = state["current_bet_atomic"].as_str().unwrap_or("0").parse().unwrap_or(0);
+        let big_blind: u128 = state["big_blind_atomic"].as_str().unwrap_or("0").parse().unwrap_or(0);
         let big_blind_seat = state["big_blind_seat"].as_i64().unwrap_or(-1);
 
         let to_call = current_bet.saturating_sub(bet_this_round);
@@ -186,7 +186,7 @@ impl Game for TexasHoldemV1 {
         mut state: Value,
         agent_id: Uuid,
         action: &str,
-        amount_wei: Option<&str>,
+        amount_atomic: Option<&str>,
     ) -> Result<Value, DE> {
         let agent_str = agent_id.to_string();
         let player_idx = {
@@ -197,23 +197,23 @@ impl Game for TexasHoldemV1 {
                 .ok_or(DE::InvalidAction("Player not found".into()))?
         };
 
-        let current_bet: u128 = state["current_bet_wei"]
+        let current_bet: u128 = state["current_bet_atomic"]
             .as_str()
             .unwrap_or("0")
             .parse()
             .unwrap_or(0);
-        let big_blind: u128 = state["big_blind_wei"]
+        let big_blind: u128 = state["big_blind_atomic"]
             .as_str()
             .unwrap_or("0")
             .parse()
             .unwrap_or(0);
 
-        let player_stack: u128 = state["players"][player_idx]["stack_wei"]
+        let player_stack: u128 = state["players"][player_idx]["stack_atomic"]
             .as_str()
             .unwrap_or("0")
             .parse()
             .unwrap_or(0);
-        let bet_this_round: u128 = state["players"][player_idx]["bet_this_round_wei"]
+        let bet_this_round: u128 = state["players"][player_idx]["bet_this_round_atomic"]
             .as_str()
             .unwrap_or("0")
             .parse()
@@ -233,18 +233,18 @@ impl Game for TexasHoldemV1 {
                 let call_amount = to_call.min(player_stack);
                 let new_stack = player_stack - call_amount;
                 let new_bet = bet_this_round + call_amount;
-                state["players"][player_idx]["stack_wei"] = json!(new_stack.to_string());
-                state["players"][player_idx]["bet_this_round_wei"] = json!(new_bet.to_string());
+                state["players"][player_idx]["stack_atomic"] = json!(new_stack.to_string());
+                state["players"][player_idx]["bet_this_round_atomic"] = json!(new_bet.to_string());
 
-                let pot: u128 = state["pot_wei"].as_str().unwrap_or("0").parse().unwrap_or(0);
-                state["pot_wei"] = json!((pot + call_amount).to_string());
+                let pot: u128 = state["pot_atomic"].as_str().unwrap_or("0").parse().unwrap_or(0);
+                state["pot_atomic"] = json!((pot + call_amount).to_string());
 
                 if new_stack == 0 {
                     state["players"][player_idx]["status"] = json!("all_in");
                 }
             }
             "bet" => {
-                let amount: u128 = amount_wei
+                let amount: u128 = amount_atomic
                     .ok_or_else(|| DE::InvalidAmount("amount required for bet".into()))?
                     .parse()
                     .map_err(|_| DE::InvalidAmount("invalid amount".into()))?;
@@ -257,12 +257,12 @@ impl Game for TexasHoldemV1 {
 
                 let new_stack = player_stack - amount;
                 let new_bet = bet_this_round + amount;
-                state["players"][player_idx]["stack_wei"] = json!(new_stack.to_string());
-                state["players"][player_idx]["bet_this_round_wei"] = json!(new_bet.to_string());
-                state["current_bet_wei"] = json!(new_bet.to_string());
+                state["players"][player_idx]["stack_atomic"] = json!(new_stack.to_string());
+                state["players"][player_idx]["bet_this_round_atomic"] = json!(new_bet.to_string());
+                state["current_bet_atomic"] = json!(new_bet.to_string());
 
-                let pot: u128 = state["pot_wei"].as_str().unwrap_or("0").parse().unwrap_or(0);
-                state["pot_wei"] = json!((pot + amount).to_string());
+                let pot: u128 = state["pot_atomic"].as_str().unwrap_or("0").parse().unwrap_or(0);
+                state["pot_atomic"] = json!((pot + amount).to_string());
 
                 let seat = state["players"][player_idx]["seat_number"].as_i64().unwrap_or(0);
                 state["last_aggressor_seat"] = json!(seat);
@@ -272,7 +272,7 @@ impl Game for TexasHoldemV1 {
                 }
             }
             "raise" => {
-                let amount: u128 = amount_wei
+                let amount: u128 = amount_atomic
                     .ok_or_else(|| DE::InvalidAmount("amount required for raise".into()))?
                     .parse()
                     .map_err(|_| DE::InvalidAmount("invalid amount".into()))?;
@@ -285,12 +285,12 @@ impl Game for TexasHoldemV1 {
 
                 let new_stack = player_stack - amount;
                 let new_bet = bet_this_round + amount;
-                state["players"][player_idx]["stack_wei"] = json!(new_stack.to_string());
-                state["players"][player_idx]["bet_this_round_wei"] = json!(new_bet.to_string());
-                state["current_bet_wei"] = json!(new_bet.to_string());
+                state["players"][player_idx]["stack_atomic"] = json!(new_stack.to_string());
+                state["players"][player_idx]["bet_this_round_atomic"] = json!(new_bet.to_string());
+                state["current_bet_atomic"] = json!(new_bet.to_string());
 
-                let pot: u128 = state["pot_wei"].as_str().unwrap_or("0").parse().unwrap_or(0);
-                state["pot_wei"] = json!((pot + amount).to_string());
+                let pot: u128 = state["pot_atomic"].as_str().unwrap_or("0").parse().unwrap_or(0);
+                state["pot_atomic"] = json!((pot + amount).to_string());
 
                 let seat = state["players"][player_idx]["seat_number"].as_i64().unwrap_or(0);
                 state["last_aggressor_seat"] = json!(seat);
@@ -302,16 +302,16 @@ impl Game for TexasHoldemV1 {
             "all_in" => {
                 let new_bet = bet_this_round + player_stack;
                 if new_bet > current_bet {
-                    state["current_bet_wei"] = json!(new_bet.to_string());
+                    state["current_bet_atomic"] = json!(new_bet.to_string());
                     let seat = state["players"][player_idx]["seat_number"].as_i64().unwrap_or(0);
                     state["last_aggressor_seat"] = json!(seat);
                 }
-                state["players"][player_idx]["bet_this_round_wei"] = json!(new_bet.to_string());
+                state["players"][player_idx]["bet_this_round_atomic"] = json!(new_bet.to_string());
 
-                let pot: u128 = state["pot_wei"].as_str().unwrap_or("0").parse().unwrap_or(0);
-                state["pot_wei"] = json!((pot + player_stack).to_string());
+                let pot: u128 = state["pot_atomic"].as_str().unwrap_or("0").parse().unwrap_or(0);
+                state["pot_atomic"] = json!((pot + player_stack).to_string());
 
-                state["players"][player_idx]["stack_wei"] = json!("0");
+                state["players"][player_idx]["stack_atomic"] = json!("0");
                 state["players"][player_idx]["status"] = json!("all_in");
             }
             _ => {
@@ -345,7 +345,7 @@ impl Game for TexasHoldemV1 {
         }
 
         let players = state["players"].as_array()?;
-        let pot: u128 = state["pot_wei"].as_str()?.parse().ok()?;
+        let pot: u128 = state["pot_atomic"].as_str().unwrap_or("0").parse().ok()?;
         let community_cards: Vec<String> = state["community_cards"]
             .as_array()?
             .iter()
@@ -399,7 +399,7 @@ impl Game for TexasHoldemV1 {
         let per_winner = distributable / winners.len() as u128;
         let remainder = distributable - per_winner * winners.len() as u128;
 
-        let buy_in_wei = state["buy_in_wei"].as_str().unwrap_or("0").to_string();
+        let buy_in_atomic = state["buy_in_atomic"].as_str().unwrap_or("0").to_string();
 
         let winner_entries: Vec<WinnerEntry> = winners
             .iter()
@@ -416,7 +416,7 @@ impl Game for TexasHoldemV1 {
                 Some(WinnerEntry {
                     agent_id,
                     wallet_address: wallet.to_string(),
-                    amount_won_wei: amount.to_string(),
+                    amount_won_atomic: amount.to_string(),
                 })
             })
             .collect();
@@ -431,11 +431,11 @@ impl Game for TexasHoldemV1 {
                 let agent_id = p["agent_id"].as_str()?.parse().ok()?;
                 let wallet = p["wallet_address"].as_str().unwrap_or("").to_string();
                 // TODO: track exact losses per player
-                let amount_lost: u128 = buy_in_wei.parse().unwrap_or(0);
+                let amount_lost: u128 = buy_in_atomic.parse().unwrap_or(0);
                 Some(LoserEntry {
                     agent_id,
                     wallet_address: wallet,
-                    amount_lost_wei: amount_lost.to_string(),
+                    amount_lost_atomic: amount_lost.to_string(),
                 })
             })
             .collect();
@@ -446,7 +446,7 @@ impl Game for TexasHoldemV1 {
         hasher.update(game_id.as_bytes());
         for w in &winner_entries {
             hasher.update(w.wallet_address.as_bytes());
-            hasher.update(w.amount_won_wei.as_bytes());
+            hasher.update(w.amount_won_atomic.as_bytes());
         }
         hasher.update(rake.to_string().as_bytes());
         let hash = hasher.finalize();
@@ -456,7 +456,7 @@ impl Game for TexasHoldemV1 {
             game_id,
             winners: winner_entries,
             losers: loser_entries,
-            rake_wei: rake.to_string(),
+            rake_atomic: rake.to_string(),
             rake_rate_bps: rake_bps as i16,
             signed_result_hash,
         })
@@ -471,40 +471,49 @@ impl Game for TexasHoldemV1 {
         game_id: Uuid,
         turn_number: i64,
         action: &str,
-        amount_wei: Option<&str>,
+        amount_atomic: Option<&str>,
         signature: &str,
         wallet_address: &str,
+        chain_type: &str,
     ) -> Result<bool, DE> {
-        use sha3::{Digest, Keccak256};
-
         let mut message = Vec::new();
         message.extend_from_slice(game_id.as_bytes());
         message.extend_from_slice(&turn_number.to_be_bytes());
         message.extend_from_slice(action.as_bytes());
-        message.extend_from_slice(amount_wei.unwrap_or("").as_bytes());
+        message.extend_from_slice(amount_atomic.unwrap_or("").as_bytes());
 
-        let msg_hash = Keccak256::digest(&message);
-
-        // EIP-191 personal sign
-        let prefixed_msg = format!("\x19Ethereum Signed Message:\n{}", msg_hash.len());
-        let mut prefixed = prefixed_msg.into_bytes();
-        prefixed.extend_from_slice(&msg_hash);
-        let final_hash = Keccak256::digest(&prefixed);
-
-        // Try to recover signer
-        match recover_from_hash(&final_hash, signature) {
-            Ok(recovered) => Ok(recovered.to_lowercase() == wallet_address.to_lowercase()),
-            Err(_) => Ok(false),
+        match chain_type {
+            "evm" => verify_evm_signature(&message, signature, wallet_address),
+            "onechain" => {
+                // Ed25519: verify against known public key derived from wallet address.
+                // wallet_address for OneChain is the 0x+64 hex Sui address (32-byte hash of pubkey).
+                // Full verification requires the public key — here we use the settlement adapter helper.
+                // For now delegate to EVM-style check; full Ed25519 path wired in auth_service.
+                Err(DE::InvalidAction("OneChain signature verification requires public key lookup".into()))
+            }
+            _ => Err(DE::InvalidAction(format!("Unknown chain_type: {}", chain_type))),
         }
     }
 }
 
-fn recover_from_hash(hash: &[u8], signature: &str) -> Result<String, anyhow::Error> {
-    let sig: alloy::primitives::Signature = signature.parse()?;
+fn verify_evm_signature(message: &[u8], signature: &str, wallet_address: &str) -> Result<bool, DE> {
+    use sha3::{Digest, Keccak256};
+
+    let msg_hash = Keccak256::digest(message);
+
+    // EIP-191 personal sign
+    let prefixed_msg = format!("\x19Ethereum Signed Message:\n{}", msg_hash.len());
+    let mut prefixed = prefixed_msg.into_bytes();
+    prefixed.extend_from_slice(&msg_hash);
+    let final_hash = Keccak256::digest(&prefixed);
+
+    let sig: alloy::primitives::Signature = signature.parse()
+        .map_err(|_| DE::InvalidAction("Invalid signature format".into()))?;
     let mut h = [0u8; 32];
-    h.copy_from_slice(&hash[..32]);
-    let recovered = sig.recover_address_from_prehash(&alloy::primitives::B256::from(h))?;
-    Ok(format!("{:#x}", recovered))
+    h.copy_from_slice(&final_hash[..32]);
+    let recovered = sig.recover_address_from_prehash(&alloy::primitives::B256::from(h))
+        .map_err(|_| DE::InvalidAction("Signature recovery failed".into()))?;
+    Ok(format!("{:#x}", recovered).to_lowercase() == wallet_address.to_lowercase())
 }
 
 /// Check if the betting round is complete and advance to next phase if so.
@@ -531,12 +540,12 @@ fn advance_action(mut state: Value) -> Result<Value, DE> {
         return Ok(state);
     }
 
-    let current_bet: u128 = state["current_bet_wei"].as_str().unwrap_or("0").parse().unwrap_or(0);
+    let current_bet: u128 = state["current_bet_atomic"].as_str().unwrap_or("0").parse().unwrap_or(0);
     let last_aggressor_seat = state["last_aggressor_seat"].as_i64().unwrap_or(0);
 
     // Check if betting round is complete: all active (non-all-in) players have matched current bet
     let round_complete = active_non_allin.iter().all(|p| {
-        let bet: u128 = p["bet_this_round_wei"].as_str().unwrap_or("0").parse().unwrap_or(0);
+        let bet: u128 = p["bet_this_round_atomic"].as_str().unwrap_or("0").parse().unwrap_or(0);
         bet >= current_bet
     }) || active_non_allin.is_empty();
 
@@ -583,10 +592,10 @@ fn next_phase(mut state: Value) -> Result<Value, DE> {
     let players = state["players"].as_array_mut().unwrap();
     for p in players.iter_mut() {
         if p["status"].as_str() == Some("active") || p["status"].as_str() == Some("all_in") {
-            p["bet_this_round_wei"] = json!("0");
+            p["bet_this_round_atomic"] = json!("0");
         }
     }
-    state["current_bet_wei"] = json!("0");
+    state["current_bet_atomic"] = json!("0");
 
     let next_phase_str = match phase.as_str() {
         "pre_flop" => {
@@ -681,7 +690,7 @@ mod tests {
                 agent_id: Uuid::new_v4(),
                 wallet_address: format!("0x{:040x}", i + 1),
                 seat_number: (i + 1) as i16,
-                stack_wei: "1000000000000000000".to_string(), // 1 ETH
+                stack_atomic: "1000000000000000000".to_string(), // 1 ETH
                 status: PlayerStatus::Active,
                 consecutive_timeouts: 0,
             })
@@ -697,7 +706,7 @@ mod tests {
 
         assert_eq!(state["phase"], "pre_flop");
         assert_eq!(state["players"].as_array().unwrap().len(), 2);
-        assert!(state["pot_wei"].as_str().unwrap().parse::<u128>().unwrap() > 0);
+        assert!(state["pot_atomic"].as_str().unwrap().parse::<u128>().unwrap() > 0);
     }
 
     #[test]

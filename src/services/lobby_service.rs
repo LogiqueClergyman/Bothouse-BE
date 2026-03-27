@@ -9,7 +9,7 @@ use crate::state::AppState;
 
 pub struct CreateRoomRequest {
     pub game_type: String,
-    pub buy_in_wei: String,
+    pub buy_in_atomic: String,
     pub max_players: i16,
     pub min_players: i16,
     pub escrow_tx_hash: String,
@@ -17,7 +17,7 @@ pub struct CreateRoomRequest {
 
 pub struct JoinQueueRequest {
     pub game_type: String,
-    pub buy_in_wei: String,
+    pub buy_in_atomic: String,
     pub max_players: i16,
     pub escrow_tx_hash: String,
 }
@@ -59,11 +59,11 @@ pub async fn create_room(
     }
 
     let buy_in: u128 = req
-        .buy_in_wei
+        .buy_in_atomic
         .parse()
-        .map_err(|_| AppError::BadRequest("Invalid buy_in_wei".to_string()))?;
+        .map_err(|_| AppError::BadRequest("Invalid buy_in_atomic".to_string()))?;
     if buy_in == 0 {
-        return Err(AppError::BadRequest("buy_in_wei must be > 0".to_string()));
+        return Err(AppError::BadRequest("buy_in_atomic must be > 0".to_string()));
     }
 
     let agent = state
@@ -78,7 +78,7 @@ pub async fn create_room(
         game_type: req.game_type.clone(),
         game_version: game.version().to_string(),
         status: RoomStatus::Open,
-        buy_in_wei: req.buy_in_wei.clone(),
+        buy_in_atomic: req.buy_in_atomic.clone(),
         max_players: req.max_players,
         min_players: req.min_players,
         created_at: now,
@@ -91,7 +91,7 @@ pub async fn create_room(
     // Verify escrow for creator
     let verified = state
         .settlement
-        .check_escrow_deposit(room.room_id, &agent.wallet_address, &req.buy_in_wei)
+        .check_escrow_deposit(room.room_id, &agent.wallet_address, &req.buy_in_atomic)
         .await?;
     if !verified {
         return Err(AppError::BadRequest("ESCROW_NOT_VERIFIED".to_string()));
@@ -179,7 +179,7 @@ pub async fn join_room(
 
     let verified = state
         .settlement
-        .check_escrow_deposit(room_id, &agent.wallet_address, &room.buy_in_wei)
+        .check_escrow_deposit(room_id, &agent.wallet_address, &room.buy_in_atomic)
         .await?;
     if !verified {
         return Err(AppError::BadRequest("ESCROW_NOT_VERIFIED".to_string()));
@@ -241,7 +241,7 @@ pub async fn join_queue(
     req: JoinQueueRequest,
     state: &AppState,
 ) -> Result<JoinQueueResponse, AppError> {
-    // Look for existing open room matching game_type, buy_in_wei, max_players
+    // Look for existing open room matching game_type, buy_in_atomic, max_players
     let rooms = state
         .lobby_store
         .list_rooms(
@@ -253,7 +253,7 @@ pub async fn join_queue(
         .await?;
 
     for room in rooms {
-        if room.buy_in_wei == req.buy_in_wei && room.max_players == req.max_players {
+        if room.buy_in_atomic == req.buy_in_atomic && room.max_players == req.max_players {
             let seats = state.lobby_store.get_seats_by_room(room.room_id).await?;
             if seats.len() < room.max_players as usize {
                 let seat = join_room(agent_id, room.room_id, &req.escrow_tx_hash, state).await?;
@@ -269,7 +269,7 @@ pub async fn join_queue(
     // Create new room
     let room_req = CreateRoomRequest {
         game_type: req.game_type.clone(),
-        buy_in_wei: req.buy_in_wei.clone(),
+        buy_in_atomic: req.buy_in_atomic.clone(),
         max_players: req.max_players,
         min_players: 2,
         escrow_tx_hash: req.escrow_tx_hash,
@@ -322,7 +322,7 @@ pub async fn start_game(room_id: Uuid, state: &AppState) -> Result<GameInstance,
             agent_id: s.agent_id,
             wallet_address: s.wallet_address.clone(),
             seat_number: s.seat_number,
-            stack_wei: room.buy_in_wei.clone(),
+            stack_atomic: room.buy_in_atomic.clone(),
             status: PlayerStatus::Active,
             consecutive_timeouts: 0,
         })
@@ -389,6 +389,7 @@ mod tests {
             bcrypt_cost: 4,
             house_signing_key: "deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef".to_string(),
             turn_timeout_ms: 10000,
+            chain_type: "evm".to_string(),
             settlement_rpc_url: "".to_string(),
             settlement_private_key: "".to_string(),
             escrow_contract_address: "0x0000000000000000000000000000000000000000".to_string(),
@@ -460,7 +461,7 @@ mod tests {
         let (_, agent_id) = register_test_agent(&state).await;
         let req = CreateRoomRequest {
             game_type: "texas_holdem_v1".to_string(),
-            buy_in_wei: "1000000000000000000".to_string(),
+            buy_in_atomic: "1000000000000000000".to_string(),
             max_players: 6,
             min_players: 2,
             escrow_tx_hash: "0xabc".to_string(),
@@ -478,7 +479,7 @@ mod tests {
 
         let req = CreateRoomRequest {
             game_type: "texas_holdem_v1".to_string(),
-            buy_in_wei: "1000000000000000000".to_string(),
+            buy_in_atomic: "1000000000000000000".to_string(),
             max_players: 6,
             min_players: 3,
             escrow_tx_hash: "0xabc".to_string(),

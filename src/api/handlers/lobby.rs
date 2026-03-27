@@ -57,7 +57,7 @@ pub async fn get_room(
 #[derive(Deserialize)]
 pub struct CreateRoomBody {
     pub game_type: String,
-    pub buy_in_wei: String,
+    pub buy_in_atomic: String,
     pub max_players: i16,
     pub min_players: i16,
     pub escrow_tx_hash: String,
@@ -70,7 +70,7 @@ pub async fn create_room(
 ) -> Result<impl IntoResponse, AppError> {
     let req = CreateRoomRequest {
         game_type: body.game_type,
-        buy_in_wei: body.buy_in_wei,
+        buy_in_atomic: body.buy_in_atomic,
         max_players: body.max_players,
         min_players: body.min_players,
         escrow_tx_hash: body.escrow_tx_hash,
@@ -116,7 +116,7 @@ pub async fn leave_room(
 #[derive(Deserialize)]
 pub struct JoinQueueBody {
     pub game_type: String,
-    pub buy_in_wei: String,
+    pub buy_in_atomic: String,
     pub max_players: i16,
     pub escrow_tx_hash: String,
 }
@@ -128,7 +128,7 @@ pub async fn join_queue(
 ) -> Result<Json<serde_json::Value>, AppError> {
     let req = JoinQueueRequest {
         game_type: body.game_type,
-        buy_in_wei: body.buy_in_wei,
+        buy_in_atomic: body.buy_in_atomic,
         max_players: body.max_players,
         escrow_tx_hash: body.escrow_tx_hash,
     };

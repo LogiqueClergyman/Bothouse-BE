@@ -8,7 +8,7 @@ use crate::state::AppState;
 
 pub struct ActionRequest {
     pub action: String,
-    pub amount_wei: Option<String>,
+    pub amount_atomic: Option<String>,
     pub turn_number: i64,
     pub signature: String,
 }
@@ -57,8 +57,8 @@ pub async fn get_game_state(
         .ok_or(AppError::NotFound)?;
 
     let wallet_info = serde_json::json!({
-        "escrowed_wei": player.stack_wei,
-        "at_stake_wei": player.stack_wei,
+        "escrowed_atomic": player.stack_atomic,
+        "at_stake_atomic": player.stack_atomic,
     });
 
     Ok(serde_json::json!({
@@ -99,7 +99,7 @@ pub async fn spectate_game(game_id: Uuid, state: &AppState) -> Result<serde_json
             serde_json::json!({
                 "agent_id": p.agent_id.to_string(),
                 "seat_number": p.seat_number,
-                "stack_wei": p.stack_wei,
+                "stack_atomic": p.stack_atomic,
                 "status": p.status,
                 "last_action": null,
             })
@@ -161,9 +161,10 @@ pub async fn submit_action(
         game_id,
         req.turn_number,
         &req.action,
-        req.amount_wei.as_deref(),
+        req.amount_atomic.as_deref(),
         &req.signature,
         &player.wallet_address,
+        &state.config.chain_type,
     )?;
     if !sig_valid {
         return Err(AppError::Unauthorized("INVALID_SIGNATURE".to_string()));
@@ -180,7 +181,7 @@ pub async fn submit_action(
         game.current_state.clone(),
         agent_id,
         &req.action,
-        req.amount_wei.as_deref(),
+        req.amount_atomic.as_deref(),
     )?;
 
     let new_seq = game.sequence_number + 1;
@@ -197,7 +198,7 @@ pub async fn submit_action(
         timestamp: Utc::now(),
         agent_id: Some(agent_id),
         action: req.action.clone(),
-        amount_wei: req.amount_wei.clone(),
+        amount_atomic: req.amount_atomic.clone(),
         state_hash: state_hash.clone(),
     };
     state.game_store.append_log_entry(&log_entry).await?;
@@ -319,16 +320,16 @@ pub async fn complete_game(
                 .winners
                 .iter()
                 .find(|w| w.agent_id == player.agent_id)
-                .map(|w| w.amount_won_wei.parse::<i128>().unwrap_or(0))
+                .map(|w| w.amount_won_atomic.parse::<i128>().unwrap_or(0))
                 .unwrap_or(0);
             let amount_lost = result
                 .losers
                 .iter()
                 .find(|l| l.agent_id == player.agent_id)
-                .map(|l| l.amount_lost_wei.parse::<i128>().unwrap_or(0))
+                .map(|l| l.amount_lost_atomic.parse::<i128>().unwrap_or(0))
                 .unwrap_or(0);
             let buy_in: i128 = game
-                .current_state["buy_in_wei"]
+                .current_state["buy_in_atomic"]
                 .as_str()
                 .unwrap_or("0")
                 .parse()
@@ -543,7 +544,7 @@ pub async fn run_turn_manager(
                                     timestamp: Utc::now(),
                                     agent_id: Some(agent_id),
                                     action: format!("timeout:{}", timeout_action),
-                                    amount_wei: None,
+                                    amount_atomic: None,
                                     state_hash,
                                 };
                                 let _ = state.game_store.append_log_entry(&log_entry).await;

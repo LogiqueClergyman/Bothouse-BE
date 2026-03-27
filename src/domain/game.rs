@@ -45,7 +45,7 @@ pub struct GamePlayer {
     pub agent_id: Uuid,
     pub wallet_address: String,
     pub seat_number: i16,
-    pub stack_wei: String,
+    pub stack_atomic: String,
     pub status: PlayerStatus,
     pub consecutive_timeouts: i16,
 }
@@ -57,7 +57,7 @@ pub struct GameLogEntry {
     pub timestamp: DateTime<Utc>,
     pub agent_id: Option<Uuid>,
     pub action: String,
-    pub amount_wei: Option<String>,
+    pub amount_atomic: Option<String>,
     pub state_hash: String,
 }
 
@@ -66,7 +66,7 @@ pub struct GameResult {
     pub game_id: Uuid,
     pub winners: Vec<WinnerEntry>,
     pub losers: Vec<LoserEntry>,
-    pub rake_wei: String,
+    pub rake_atomic: String,
     pub rake_rate_bps: i16,
     pub signed_result_hash: String,
 }
@@ -75,14 +75,14 @@ pub struct GameResult {
 pub struct WinnerEntry {
     pub agent_id: Uuid,
     pub wallet_address: String,
-    pub amount_won_wei: String,
+    pub amount_won_atomic: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LoserEntry {
     pub agent_id: Uuid,
     pub wallet_address: String,
-    pub amount_lost_wei: String,
+    pub amount_lost_atomic: String,
 }
 
 pub trait Game: Send + Sync {
@@ -116,7 +116,7 @@ pub trait Game: Send + Sync {
         state: serde_json::Value,
         agent_id: Uuid,
         action: &str,
-        amount_wei: Option<&str>,
+        amount_atomic: Option<&str>,
     ) -> Result<serde_json::Value, DomainError>;
 
     fn is_terminal(&self, state: &serde_json::Value) -> bool;
@@ -135,8 +135,9 @@ pub trait Game: Send + Sync {
         game_id: Uuid,
         turn_number: i64,
         action: &str,
-        amount_wei: Option<&str>,
+        amount_atomic: Option<&str>,
         signature: &str,
         wallet_address: &str,
+        chain_type: &str,
     ) -> Result<bool, DomainError>;
 }
