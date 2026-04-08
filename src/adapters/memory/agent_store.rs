@@ -120,8 +120,8 @@ impl AgentStore for MemoryAgentStore {
             "win_rate" => b.win_rate.partial_cmp(&a.win_rate).unwrap_or(std::cmp::Ordering::Equal),
             "games_played" => b.games_played.cmp(&a.games_played),
             _ => {
-                let a_val: i128 = a.net_profit_wei.parse().unwrap_or(0);
-                let b_val: i128 = b.net_profit_wei.parse().unwrap_or(0);
+                let a_val: i128 = a.net_profit_atomic.parse().unwrap_or(0);
+                let b_val: i128 = b.net_profit_atomic.parse().unwrap_or(0);
                 b_val.cmp(&a_val)
             }
         });

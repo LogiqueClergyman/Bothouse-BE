@@ -12,14 +12,14 @@ pub struct CreateRoomRequest {
     pub buy_in_atomic: String,
     pub max_players: i16,
     pub min_players: i16,
-    pub escrow_tx_hash: String,
+    pub escrow_tx_hash: Option<String>,
 }
 
 pub struct JoinQueueRequest {
     pub game_type: String,
     pub buy_in_atomic: String,
     pub max_players: i16,
-    pub escrow_tx_hash: String,
+    pub escrow_tx_hash: Option<String>,
 }
 
 pub struct JoinQueueResponse {
@@ -66,12 +66,6 @@ pub async fn create_room(
         return Err(AppError::BadRequest("buy_in_atomic must be > 0".to_string()));
     }
 
-    let agent = state
-        .agent_store
-        .get_agent_by_id(agent_id)
-        .await?
-        .ok_or(AppError::NotFound)?;
-
     let now = Utc::now();
     let room = Room {
         room_id: Uuid::new_v4(),
@@ -88,30 +82,28 @@ pub async fn create_room(
 
     let room = state.lobby_store.create_room(&room).await?;
 
-    // Verify escrow for creator
-    let verified = state
+    // Create the on-chain escrow Game object for this room_id.
+    // Players will deposit and then join the room with their deposit digest.
+    let tx = state
         .settlement
-        .check_escrow_deposit(room.room_id, &agent.wallet_address, &req.buy_in_atomic)
-        .await?;
-    if !verified {
-        return Err(AppError::BadRequest("ESCROW_NOT_VERIFIED".to_string()));
-    }
+        .create_game(room.room_id, &room.buy_in_atomic)
+        .await;
 
-    let seat = Seat {
-        seat_id: Uuid::new_v4(),
-        room_id: room.room_id,
-        agent_id,
-        wallet_address: agent.wallet_address.clone(),
-        seat_number: 1,
-        joined_at: now,
-        escrow_tx_hash: Some(req.escrow_tx_hash.clone()),
-        escrow_verified: true,
-    };
-    let seat = state.lobby_store.create_seat(&seat).await?;
+    match tx {
+        Ok(digest) => {
+            tracing::info!(room_id = %room.room_id, tx = %digest, "On-chain escrow game created");
+        }
+        Err(e) => {
+            // Mark the orphaned room as cancelled so agents don't get stuck on it
+            tracing::error!(room_id = %room.room_id, error = %e, "On-chain create_game failed, cancelling room");
+            let _ = state.lobby_store.update_room_status(room.room_id, RoomStatus::Cancelled).await;
+            return Err(e);
+        }
+    }
 
     Ok(RoomWithSeats {
         room,
-        seats: vec![seat],
+        seats: vec![],
     })
 }
 
@@ -177,12 +169,14 @@ pub async fn join_room(
         .await?
         .ok_or(AppError::NotFound)?;
 
-    let verified = state
-        .settlement
-        .check_escrow_deposit(room_id, &agent.wallet_address, &room.buy_in_atomic)
-        .await?;
-    if !verified {
-        return Err(AppError::BadRequest("ESCROW_NOT_VERIFIED".to_string()));
+    if !state.config.skip_escrow_verification {
+        let verified = state
+            .settlement
+            .check_escrow_deposit(room_id, &agent.wallet_address, &room.buy_in_atomic)
+            .await?;
+        if !verified {
+            return Err(AppError::BadRequest("ESCROW_NOT_VERIFIED".to_string()));
+        }
     }
 
     let seat_number = seats.len() as i16 + 1;
@@ -256,11 +250,10 @@ pub async fn join_queue(
         if room.buy_in_atomic == req.buy_in_atomic && room.max_players == req.max_players {
             let seats = state.lobby_store.get_seats_by_room(room.room_id).await?;
             if seats.len() < room.max_players as usize {
-                let seat = join_room(agent_id, room.room_id, &req.escrow_tx_hash, state).await?;
                 return Ok(JoinQueueResponse {
                     room_id: room.room_id,
-                    seat_number: seat.seat_number,
-                    status: "seated".to_string(),
+                    seat_number: 0,
+                    status: "queued".to_string(),
                 });
             }
         }
@@ -272,14 +265,13 @@ pub async fn join_queue(
         buy_in_atomic: req.buy_in_atomic.clone(),
         max_players: req.max_players,
         min_players: 2,
-        escrow_tx_hash: req.escrow_tx_hash,
+        escrow_tx_hash: None,
     };
     let room_with_seats = create_room(agent_id, room_req, state).await?;
-    let seat_number = room_with_seats.seats[0].seat_number;
     Ok(JoinQueueResponse {
         room_id: room_with_seats.room.room_id,
-        seat_number,
-        status: "seated".to_string(),
+        seat_number: 0,
+        status: "queued".to_string(),
     })
 }
 
@@ -288,6 +280,9 @@ pub async fn start_game(room_id: Uuid, state: &AppState) -> Result<GameInstance,
         .lobby_store
         .update_room_status(room_id, RoomStatus::Starting)
         .await?;
+
+    // Mark started on-chain if applicable (EVM); no-op on OneChain.
+    let _ = state.settlement.start_game(room_id).await?;
 
     let room = state
         .lobby_store
@@ -400,11 +395,15 @@ mod tests {
             cors_origins: vec![],
             base_url: "http://localhost:8080".to_string(),
             testnet_base_url: "http://localhost:8080".to_string(),
+            skip_escrow_verification: false,
+            skip_action_signature_verification: false,
         };
 
         struct NoopSettlement;
         #[async_trait::async_trait]
         impl crate::ports::settlement_port::SettlementPort for NoopSettlement {
+            async fn create_game(&self, _: Uuid, _: &str) -> Result<String, AppError> { Ok("0x".to_string()) }
+            async fn start_game(&self, _: Uuid) -> Result<String, AppError> { Ok("0x".to_string()) }
             async fn settle(&self, _: Uuid, _: &[crate::domain::game::WinnerEntry], _: &str, _: &str) -> Result<String, AppError> { Ok("0x".to_string()) }
             async fn check_confirmation(&self, _: &str) -> Result<Option<i64>, AppError> { Ok(None) }
             async fn check_escrow_deposit(&self, _: Uuid, _: &str, _: &str) -> Result<bool, AppError> { Ok(true) }
@@ -464,10 +463,10 @@ mod tests {
             buy_in_atomic: "1000000000000000000".to_string(),
             max_players: 6,
             min_players: 2,
-            escrow_tx_hash: "0xabc".to_string(),
+            escrow_tx_hash: None,
         };
         let result = create_room(agent_id, req, &state).await.unwrap();
-        assert_eq!(result.seats.len(), 1);
+        assert_eq!(result.seats.len(), 0);
         assert_eq!(result.room.status, RoomStatus::Open);
     }
 
@@ -482,10 +481,10 @@ mod tests {
             buy_in_atomic: "1000000000000000000".to_string(),
             max_players: 6,
             min_players: 3,
-            escrow_tx_hash: "0xabc".to_string(),
+            escrow_tx_hash: None,
         };
         let room = create_room(creator_id, req, &state).await.unwrap();
         let seat = join_room(joiner_id, room.room.room_id, "0xdef", &state).await.unwrap();
-        assert_eq!(seat.seat_number, 2);
+        assert_eq!(seat.seat_number, 1);
     }
 }

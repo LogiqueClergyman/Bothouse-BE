@@ -5,10 +5,20 @@ use crate::domain::agent::{Agent, AgentStats, AgentStatus};
 use crate::errors::AppError;
 use crate::state::AppState;
 
-fn is_valid_evm_address(addr: &str) -> bool {
-    addr.len() == 42
-        && addr.starts_with("0x")
-        && addr[2..].chars().all(|c| c.is_ascii_hexdigit())
+fn is_valid_wallet_address(addr: &str, chain_type: &str) -> bool {
+    match chain_type {
+        "evm" => {
+            addr.len() == 42
+                && addr.starts_with("0x")
+                && addr[2..].chars().all(|c| c.is_ascii_hexdigit())
+        }
+        "onechain" => {
+            addr.len() == 66
+                && addr.starts_with("0x")
+                && addr[2..].chars().all(|c| c.is_ascii_hexdigit())
+        }
+        _ => false,
+    }
 }
 
 fn is_valid_url(url: &str) -> bool {
@@ -95,7 +105,7 @@ pub async fn register_agent(
             return Err(AppError::BadRequest("Invalid webhook URL".to_string()));
         }
     }
-    if !is_valid_evm_address(&req.wallet_address) {
+    if !is_valid_wallet_address(&req.wallet_address, &state.config.chain_type) {
         return Err(AppError::BadRequest(
             "Invalid wallet address".to_string(),
         ));
@@ -271,7 +281,7 @@ pub async fn get_leaderboard(
     offset: i64,
     state: &AppState,
 ) -> Result<Vec<LeaderboardEntry>, AppError> {
-    let valid_sorts = ["win_rate", "net_profit_wei", "games_played"];
+    let valid_sorts = ["win_rate", "net_profit_atomic", "games_played"];
     if !valid_sorts.contains(&sort_by.as_str()) {
         return Err(AppError::BadRequest(format!("Invalid sort_by: {}", sort_by)));
     }
@@ -369,11 +379,15 @@ mod tests {
             cors_origins: vec![],
             base_url: "http://localhost:8080".to_string(),
             testnet_base_url: "http://localhost:8080".to_string(),
+            skip_escrow_verification: false,
+            skip_action_signature_verification: false,
         };
 
         struct NoopSettlement;
         #[async_trait::async_trait]
         impl crate::ports::settlement_port::SettlementPort for NoopSettlement {
+            async fn create_game(&self, _: Uuid, _: &str) -> Result<String, AppError> { Ok("0x".to_string()) }
+            async fn start_game(&self, _: Uuid) -> Result<String, AppError> { Ok("0x".to_string()) }
             async fn settle(&self, _: Uuid, _: &[crate::domain::game::WinnerEntry], _: &str, _: &str) -> Result<String, AppError> { Ok("0x".to_string()) }
             async fn check_confirmation(&self, _: &str) -> Result<Option<i64>, AppError> { Ok(None) }
             async fn check_escrow_deposit(&self, _: Uuid, _: &str, _: &str) -> Result<bool, AppError> { Ok(true) }

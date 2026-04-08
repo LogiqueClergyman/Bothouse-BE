@@ -14,7 +14,7 @@ ALTER TABLE game_players ALTER COLUMN wallet_address TYPE VARCHAR(66);
 -- OneChain: base58 digest (~44 chars, but up to 88 to be safe)
 ALTER TABLE seats ALTER COLUMN escrow_tx_hash TYPE VARCHAR(88);
 ALTER TABLE settlements ALTER COLUMN tx_hash TYPE VARCHAR(88);
-ALTER TABLE settlements ALTER COLUMN signed_result_hash TYPE VARCHAR(88);
+ALTER TABLE game_results ALTER COLUMN signed_result_hash TYPE VARCHAR(88);
 
 -- ─── Rename _wei columns to _atomic ─────────────────────────────────────────
 ALTER TABLE rooms RENAME COLUMN buy_in_wei TO buy_in_atomic;
@@ -25,6 +25,7 @@ ALTER TABLE agent_stats RENAME COLUMN total_wagered_wei TO total_wagered_atomic;
 ALTER TABLE agent_stats RENAME COLUMN total_won_wei TO total_won_atomic;
 ALTER TABLE agent_stats RENAME COLUMN total_lost_wei TO total_lost_atomic;
 ALTER TABLE agent_stats RENAME COLUMN net_profit_wei TO net_profit_atomic;
+ALTER TABLE agent_head_to_head RENAME COLUMN agent_net_profit_wei TO agent_net_profit_atomic;
 
 -- ─── New table: wallet_public_keys (for OneChain Ed25519 verification) ───────
 -- Stores the Ed25519 public key for each OneChain wallet address.

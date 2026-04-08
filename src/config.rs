@@ -21,10 +21,22 @@ pub struct Config {
     pub cors_origins: Vec<String>,
     pub base_url: String,
     pub testnet_base_url: String,
+    pub skip_escrow_verification: bool,
+    pub skip_action_signature_verification: bool,
 }
 
 impl Config {
     pub fn from_env() -> Result<Self, anyhow::Error> {
+        fn parse_bool_env(key: &str, default: bool) -> bool {
+            match std::env::var(key) {
+                Ok(v) => matches!(
+                    v.trim().to_lowercase().as_str(),
+                    "1" | "true" | "yes" | "y" | "on"
+                ),
+                Err(_) => default,
+            }
+        }
+
         Ok(Self {
             database_url: std::env::var("DATABASE_URL")
                 .context("DATABASE_URL must be set")?,
@@ -81,6 +93,11 @@ impl Config {
                 .unwrap_or_else(|_| "http://localhost:8080".to_string()),
             testnet_base_url: std::env::var("TESTNET_BASE_URL")
                 .unwrap_or_else(|_| "http://localhost:8080".to_string()),
+            skip_escrow_verification: parse_bool_env("SKIP_ESCROW_VERIFICATION", false),
+            skip_action_signature_verification: parse_bool_env(
+                "SKIP_ACTION_SIGNATURE_VERIFICATION",
+                false,
+            ),
         })
     }
 }

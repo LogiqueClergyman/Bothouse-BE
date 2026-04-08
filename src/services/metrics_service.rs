@@ -176,7 +176,7 @@ pub async fn get_head_to_head(
             opponent_hands_won: 0,
             split: 0,
         },
-        agent_net_profit_wei: "0".to_string(),
+        agent_net_profit_atomic: "0".to_string(),
         agent_tendencies_vs_opponent: H2HTendencies {
             vpip: 0.0,
             pfr: 0.0,

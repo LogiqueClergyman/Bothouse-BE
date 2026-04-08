@@ -31,7 +31,7 @@ impl Game for TexasHoldemV1 {
     }
 
     fn turn_timeout_ms(&self) -> u64 {
-        10000
+        60000
     }
 
     fn init(&self, players: Vec<GamePlayer>, seed: [u8; 32]) -> Result<Value, DE> {

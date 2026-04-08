@@ -156,18 +156,47 @@ pub async fn submit_action(
         .get(&game.game_type)
         .ok_or_else(|| AppError::Internal(anyhow::anyhow!("Game type not found")))?;
 
-    // Verify signature
-    let sig_valid = game_impl.verify_action_signature(
-        game_id,
-        req.turn_number,
-        &req.action,
-        req.amount_atomic.as_deref(),
-        &req.signature,
-        &player.wallet_address,
-        &state.config.chain_type,
-    )?;
-    if !sig_valid {
-        return Err(AppError::Unauthorized("INVALID_SIGNATURE".to_string()));
+    // Verify signature (can be skipped for local demos)
+    if !state.config.skip_action_signature_verification {
+        if state.config.chain_type == "onechain" {
+            // OneChain uses Ed25519; verify against the wallet's registered public key.
+            let public_key_hex = state
+                .auth_store
+                .get_public_key(&player.wallet_address)
+                .await?
+                .ok_or_else(|| AppError::Unauthorized("MISSING_PUBLIC_KEY".to_string()))?;
+
+            let mut message = Vec::new();
+            message.extend_from_slice(game_id.as_bytes());
+            message.extend_from_slice(&req.turn_number.to_be_bytes());
+            message.extend_from_slice(req.action.as_bytes());
+            message.extend_from_slice(req.amount_atomic.as_deref().unwrap_or("").as_bytes());
+
+            let ok = crate::adapters::onechain::settlement::verify_ed25519_signature(
+                &message,
+                &req.signature,
+                &public_key_hex,
+            )
+            .map_err(|e| AppError::Unauthorized(format!("INVALID_SIGNATURE: {}", e)))?;
+
+            if !ok {
+                return Err(AppError::Unauthorized("INVALID_SIGNATURE".to_string()));
+            }
+        } else {
+            // EVM
+            let sig_valid = game_impl.verify_action_signature(
+                game_id,
+                req.turn_number,
+                &req.action,
+                req.amount_atomic.as_deref(),
+                &req.signature,
+                &player.wallet_address,
+                &state.config.chain_type,
+            )?;
+            if !sig_valid {
+                return Err(AppError::Unauthorized("INVALID_SIGNATURE".to_string()));
+            }
+        }
     }
 
     // Validate action
@@ -337,9 +366,9 @@ pub async fn complete_game(
 
             let now = Utc::now();
             if let Some(s) = existing {
-                let total_wagered = s.total_wagered_wei.parse::<i128>().unwrap_or(0) + buy_in;
-                let total_won = s.total_won_wei.parse::<i128>().unwrap_or(0) + amount_won;
-                let total_lost = s.total_lost_wei.parse::<i128>().unwrap_or(0) + amount_lost;
+                let total_wagered = s.total_wagered_atomic.parse::<i128>().unwrap_or(0) + buy_in;
+                let total_won = s.total_won_atomic.parse::<i128>().unwrap_or(0) + amount_won;
+                let total_lost = s.total_lost_atomic.parse::<i128>().unwrap_or(0) + amount_lost;
                 let games_played = s.games_played + 1;
                 let games_won = s.games_won + if is_winner { 1 } else { 0 };
                 let win_rate = if games_played > 0 {
@@ -350,10 +379,10 @@ pub async fn complete_game(
 
                 s.games_played = games_played;
                 s.games_won = games_won;
-                s.total_wagered_wei = total_wagered.to_string();
-                s.total_won_wei = total_won.to_string();
-                s.total_lost_wei = total_lost.to_string();
-                s.net_profit_wei = (total_won - total_lost).to_string();
+                s.total_wagered_atomic = total_wagered.to_string();
+                s.total_won_atomic = total_won.to_string();
+                s.total_lost_atomic = total_lost.to_string();
+                s.net_profit_atomic = (total_won - total_lost).to_string();
                 s.win_rate = win_rate;
                 s.updated_at = now;
                 state.agent_store.upsert_stats(s).await?;
@@ -364,10 +393,10 @@ pub async fn complete_game(
                     game_type: game.game_type.clone(),
                     games_played: 1,
                     games_won: if is_winner { 1 } else { 0 },
-                    total_wagered_wei: buy_in.to_string(),
-                    total_won_wei: amount_won.to_string(),
-                    total_lost_wei: amount_lost.to_string(),
-                    net_profit_wei: (amount_won - amount_lost).to_string(),
+                    total_wagered_atomic: buy_in.to_string(),
+                    total_won_atomic: amount_won.to_string(),
+                    total_lost_atomic: amount_lost.to_string(),
+                    net_profit_atomic: (amount_won - amount_lost).to_string(),
                     win_rate,
                     updated_at: now,
                 };

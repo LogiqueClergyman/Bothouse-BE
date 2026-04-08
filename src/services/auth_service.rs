@@ -174,11 +174,22 @@ async fn verify_onechain_signature(
         .await?
         .ok_or_else(|| anyhow::anyhow!("No public key registered for wallet {}", wallet))?;
 
-    crate::adapters::onechain::settlement::verify_ed25519_signature(
-        nonce.as_bytes(),
-        signature,
-        &public_key_hex,
-    )
+    // For nonce auth, verify the Ed25519 signature directly over raw nonce bytes
+    // (no sha256 pre-hash — unlike game action signing which pre-hashes structured payloads).
+    use ed25519_dalek::{Signature, VerifyingKey, Verifier};
+
+    let sig_bytes = hex::decode(signature.trim_start_matches("0x"))
+        .map_err(|e| anyhow::anyhow!("invalid signature hex: {}", e))?;
+    let sig = Signature::from_slice(&sig_bytes)
+        .map_err(|e| anyhow::anyhow!("invalid signature: {}", e))?;
+
+    let pk_bytes = hex::decode(public_key_hex.trim_start_matches("0x"))
+        .map_err(|e| anyhow::anyhow!("invalid public key hex: {}", e))?;
+    let vk = VerifyingKey::from_bytes(
+        pk_bytes.as_slice().try_into().map_err(|_| anyhow::anyhow!("invalid public key length"))?,
+    )?;
+
+    Ok(vk.verify(nonce.as_bytes(), &sig).is_ok())
 }
 
 fn recover_signer(message: &str, signature: &str) -> Result<String, anyhow::Error> {
@@ -230,11 +241,15 @@ mod tests {
             cors_origins: vec![],
             base_url: "http://localhost:8080".to_string(),
             testnet_base_url: "http://localhost:8080".to_string(),
+            skip_escrow_verification: false,
+            skip_action_signature_verification: false,
         };
 
         struct NoopSettlement;
         #[async_trait::async_trait]
         impl crate::ports::settlement_port::SettlementPort for NoopSettlement {
+            async fn create_game(&self, _: Uuid, _: &str) -> Result<String, AppError> { Ok("0x".to_string()) }
+            async fn start_game(&self, _: Uuid) -> Result<String, AppError> { Ok("0x".to_string()) }
             async fn settle(&self, _: Uuid, _: &[crate::domain::game::WinnerEntry], _: &str, _: &str) -> Result<String, AppError> { Ok("0x".to_string()) }
             async fn check_confirmation(&self, _: &str) -> Result<Option<i64>, AppError> { Ok(None) }
             async fn check_escrow_deposit(&self, _: Uuid, _: &str, _: &str) -> Result<bool, AppError> { Ok(true) }

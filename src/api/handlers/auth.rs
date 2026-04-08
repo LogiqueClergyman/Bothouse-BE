@@ -33,6 +33,8 @@ pub async fn get_nonce(
 pub struct VerifyRequest {
     pub wallet: String,
     pub signature: String,
+    /// For OneChain: hex-encoded Ed25519 public key. Required on first auth to register the key.
+    pub public_key: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -47,10 +49,16 @@ pub async fn verify_signature(
     State(state): State<AppState>,
     Json(body): Json<VerifyRequest>,
 ) -> Result<Json<VerifyResponse>, AppError> {
-    let user = state
-        .auth_store
-        .get_user_by_wallet(&body.wallet.to_lowercase())
-        .await?;
+    // For OneChain: store the public key on first auth so signature verification works.
+    if state.config.chain_type == "onechain" {
+        if let Some(ref pk) = body.public_key {
+            let wallet_lower = body.wallet.to_lowercase();
+            let existing = state.auth_store.get_public_key(&wallet_lower).await?;
+            if existing.is_none() {
+                state.auth_store.set_public_key(&wallet_lower, pk).await?;
+            }
+        }
+    }
 
     let (access_token, refresh_token) =
         auth_service::verify_signature(&body.wallet, &body.signature, &state).await?;

@@ -83,7 +83,7 @@ struct ActionRow {
     sequence: i64,
     timestamp: DateTime<Utc>,
     action: String,
-    amount_wei: Option<String>,
+    amount_atomic: Option<String>,
     pot_before_action: Option<String>,
     stack_before_action: Option<String>,
     num_players_in_hand: Option<i16>,
@@ -100,9 +100,9 @@ impl ActionRow {
             phase: self.phase,
             turn_number: self.sequence,
             action: self.action,
-            amount_wei: self.amount_wei,
-            pot_before_action_wei: self.pot_before_action,
-            stack_before_action_wei: self.stack_before_action,
+            amount_atomic: self.amount_atomic,
+            pot_before_action_atomic: self.pot_before_action,
+            stack_before_action_atomic: self.stack_before_action,
             num_players_in_hand: self.num_players_in_hand,
             position,
             timestamp: self.timestamp,
@@ -120,7 +120,7 @@ struct H2HRow {
     agent_hands_won: i32,
     opponent_hands_won: i32,
     split_hands: i32,
-    net_profit_wei: Option<String>,
+    net_profit_atomic: Option<String>,
     agent_vpip_count: i32,
     agent_vpip_opps: i32,
     agent_pfr_count: i32,
@@ -274,7 +274,7 @@ impl AnalyticsStore for PgAnalyticsStore {
             r#"
             SELECT gl.game_id, gl.hand_number,
                    gl.phase, gl.sequence,
-                   gl.timestamp, gl.action, gl.amount_wei::TEXT as amount_wei,
+                   gl.timestamp, gl.action, gl.amount_atomic::TEXT as amount_atomic,
                    gl.pot_before_action::TEXT as pot_before_action,
                    gl.stack_before_action::TEXT as stack_before_action,
                    gl.num_players_in_hand, gl.dealer_seat,
@@ -358,8 +358,8 @@ impl AnalyticsStore for PgAnalyticsStore {
                     final_phase: None,
                     went_to_showdown,
                     result: "unknown".to_string(),
-                    profit_wei: None,
-                    pot_wei: None,
+                    profit_atomic: None,
+                    pot_atomic: None,
                     actions_taken,
                     vpip,
                     pfr,
@@ -383,7 +383,7 @@ impl AnalyticsStore for PgAnalyticsStore {
             SELECT h.opponent_id, a.name as opponent_name, h.game_type,
                    h.games_together, h.hands_together,
                    h.agent_hands_won, h.opponent_hands_won, h.split_hands,
-                   h.agent_net_profit_wei::TEXT as net_profit_wei,
+                   h.agent_net_profit_atomic::TEXT as net_profit_atomic,
                    h.agent_vpip_count, h.agent_vpip_opps,
                    h.agent_pfr_count, h.agent_agg_bets, h.agent_agg_calls,
                    h.agent_fold_to_raise_count, h.agent_fold_to_raise_opps,
@@ -411,7 +411,7 @@ impl AnalyticsStore for PgAnalyticsStore {
             SELECT h.opponent_id, a.name as opponent_name, h.game_type,
                    h.games_together, h.hands_together,
                    h.agent_hands_won, h.opponent_hands_won, h.split_hands,
-                   h.agent_net_profit_wei::TEXT as net_profit_wei,
+                   h.agent_net_profit_atomic::TEXT as net_profit_atomic,
                    h.agent_vpip_count, h.agent_vpip_opps,
                    h.agent_pfr_count, h.agent_agg_bets, h.agent_agg_calls,
                    h.agent_fold_to_raise_count, h.agent_fold_to_raise_opps,
@@ -479,8 +479,8 @@ impl AnalyticsStore for PgAnalyticsStore {
                 opponent_hands_won: agent_row.opponent_hands_won,
                 split: agent_row.split_hands,
             },
-            agent_net_profit_wei: agent_row
-                .net_profit_wei
+            agent_net_profit_atomic: agent_row
+                .net_profit_atomic
                 .unwrap_or_else(|| "0".to_string()),
             agent_tendencies_vs_opponent: agent_tendencies,
             opponent_tendencies_vs_agent: opponent_tendencies,
@@ -490,7 +490,7 @@ impl AnalyticsStore for PgAnalyticsStore {
 
     async fn upsert_head_to_head(&self, r: &HeadToHeadRecord) -> Result<(), AppError> {
         let net_profit: sqlx::types::BigDecimal = r
-            .agent_net_profit_wei
+            .agent_net_profit_atomic
             .parse()
             .unwrap_or(sqlx::types::BigDecimal::from(0));
 
@@ -498,7 +498,7 @@ impl AnalyticsStore for PgAnalyticsStore {
             r#"
             INSERT INTO agent_head_to_head (
                 agent_id, opponent_id, game_type, games_together, hands_together,
-                agent_hands_won, opponent_hands_won, split_hands, agent_net_profit_wei,
+                agent_hands_won, opponent_hands_won, split_hands, agent_net_profit_atomic,
                 agent_vpip_count, agent_vpip_opps, agent_pfr_count,
                 agent_agg_bets, agent_agg_calls,
                 agent_fold_to_raise_count, agent_fold_to_raise_opps,
@@ -510,7 +510,7 @@ impl AnalyticsStore for PgAnalyticsStore {
                 agent_hands_won              = EXCLUDED.agent_hands_won,
                 opponent_hands_won           = EXCLUDED.opponent_hands_won,
                 split_hands                  = EXCLUDED.split_hands,
-                agent_net_profit_wei         = EXCLUDED.agent_net_profit_wei,
+                agent_net_profit_atomic      = EXCLUDED.agent_net_profit_atomic,
                 agent_vpip_count             = EXCLUDED.agent_vpip_count,
                 agent_vpip_opps              = EXCLUDED.agent_vpip_opps,
                 agent_pfr_count              = EXCLUDED.agent_pfr_count,

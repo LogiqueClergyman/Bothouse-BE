@@ -36,6 +36,12 @@ pub async fn initiate(result: &GameResult, state: &AppState) -> Result<(), AppEr
         .await
     {
         Ok(tx_hash) => {
+            tracing::info!(
+                game_id = %result.game_id,
+                tx_hash = %tx_hash,
+                "Settlement submitted"
+            );
+
             // Poll for confirmation with exponential backoff
             let delays = [1u64, 2, 4, 8, 16];
             let mut confirmed = false;
@@ -54,6 +60,12 @@ pub async fn initiate(result: &GameResult, state: &AppState) -> Result<(), AppEr
             }
 
             if confirmed {
+                tracing::info!(
+                    game_id = %result.game_id,
+                    tx_hash = %tx_hash,
+                    block_number = ?block_number,
+                    "Settlement confirmed"
+                );
                 state
                     .event_bus
                     .publish(
@@ -66,6 +78,11 @@ pub async fn initiate(result: &GameResult, state: &AppState) -> Result<(), AppEr
                     )
                     .await?;
             } else {
+                tracing::warn!(
+                    game_id = %result.game_id,
+                    tx_hash = %tx_hash,
+                    "Settlement confirmation timed out"
+                );
                 state
                     .event_bus
                     .publish(
@@ -80,6 +97,11 @@ pub async fn initiate(result: &GameResult, state: &AppState) -> Result<(), AppEr
             }
         }
         Err(e) => {
+            tracing::error!(
+                game_id = %result.game_id,
+                error = %e,
+                "Settlement submission failed"
+            );
             state
                 .event_bus
                 .publish(

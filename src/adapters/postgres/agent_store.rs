@@ -56,10 +56,10 @@ struct AgentStatsRow {
     game_type: String,
     games_played: i32,
     games_won: i32,
-    total_wagered_wei: sqlx::types::BigDecimal,
-    total_won_wei: sqlx::types::BigDecimal,
-    total_lost_wei: sqlx::types::BigDecimal,
-    net_profit_wei: sqlx::types::BigDecimal,
+    total_wagered_atomic: sqlx::types::BigDecimal,
+    total_won_atomic: sqlx::types::BigDecimal,
+    total_lost_atomic: sqlx::types::BigDecimal,
+    net_profit_atomic: sqlx::types::BigDecimal,
     win_rate: f64,
     updated_at: DateTime<Utc>,
 }
@@ -72,10 +72,10 @@ impl From<AgentStatsRow> for AgentStats {
             game_type: row.game_type,
             games_played: row.games_played,
             games_won: row.games_won,
-            total_wagered_wei: row.total_wagered_wei.to_string(),
-            total_won_wei: row.total_won_wei.to_string(),
-            total_lost_wei: row.total_lost_wei.to_string(),
-            net_profit_wei: row.net_profit_wei.to_string(),
+            total_wagered_atomic: row.total_wagered_atomic.to_string(),
+            total_won_atomic: row.total_won_atomic.to_string(),
+            total_lost_atomic: row.total_lost_atomic.to_string(),
+            net_profit_atomic: row.net_profit_atomic.to_string(),
             win_rate: row.win_rate,
             updated_at: row.updated_at,
         }
@@ -185,7 +185,7 @@ impl AgentStore for PgAgentStore {
 
     async fn get_stats(&self, agent_id: Uuid) -> Result<Vec<AgentStats>, AppError> {
         let rows = sqlx::query_as::<_, AgentStatsRow>(
-            "SELECT agent_id, game_type, games_played, games_won, total_wagered_wei, total_won_wei, total_lost_wei, net_profit_wei, win_rate, updated_at FROM agent_stats WHERE agent_id=$1",
+            "SELECT agent_id, game_type, games_played, games_won, total_wagered_atomic, total_won_atomic, total_lost_atomic, net_profit_atomic, win_rate, updated_at FROM agent_stats WHERE agent_id=$1",
         )
         .bind(agent_id)
         .fetch_all(&self.pool)
@@ -197,15 +197,15 @@ impl AgentStore for PgAgentStore {
     async fn upsert_stats(&self, stats: &AgentStats) -> Result<(), AppError> {
         sqlx::query(
             r#"
-            INSERT INTO agent_stats (agent_id, game_type, games_played, games_won, total_wagered_wei, total_won_wei, total_lost_wei, net_profit_wei, win_rate, updated_at)
+            INSERT INTO agent_stats (agent_id, game_type, games_played, games_won, total_wagered_atomic, total_won_atomic, total_lost_atomic, net_profit_atomic, win_rate, updated_at)
             VALUES ($1, $2, $3, $4, $5::numeric, $6::numeric, $7::numeric, $8::numeric, $9, NOW())
             ON CONFLICT (agent_id, game_type) DO UPDATE SET
               games_played = EXCLUDED.games_played,
               games_won = EXCLUDED.games_won,
-              total_wagered_wei = EXCLUDED.total_wagered_wei,
-              total_won_wei = EXCLUDED.total_won_wei,
-              total_lost_wei = EXCLUDED.total_lost_wei,
-              net_profit_wei = EXCLUDED.net_profit_wei,
+              total_wagered_atomic = EXCLUDED.total_wagered_atomic,
+              total_won_atomic = EXCLUDED.total_won_atomic,
+              total_lost_atomic = EXCLUDED.total_lost_atomic,
+              net_profit_atomic = EXCLUDED.net_profit_atomic,
               win_rate = EXCLUDED.win_rate,
               updated_at = NOW()
             "#,
@@ -214,10 +214,10 @@ impl AgentStore for PgAgentStore {
         .bind(&stats.game_type)
         .bind(stats.games_played)
         .bind(stats.games_won)
-        .bind(&stats.total_wagered_wei)
-        .bind(&stats.total_won_wei)
-        .bind(&stats.total_lost_wei)
-        .bind(&stats.net_profit_wei)
+        .bind(&stats.total_wagered_atomic)
+        .bind(&stats.total_won_atomic)
+        .bind(&stats.total_lost_atomic)
+        .bind(&stats.net_profit_atomic)
         .bind(stats.win_rate)
         .execute(&self.pool)
         .await
@@ -235,7 +235,7 @@ impl AgentStore for PgAgentStore {
         let order_col = match sort_by {
             "win_rate" => "s.win_rate",
             "games_played" => "s.games_played",
-            _ => "s.net_profit_wei",
+            _ => "s.net_profit_atomic",
         };
         let sql = format!(
             r#"
@@ -243,8 +243,8 @@ impl AgentStore for PgAgentStore {
               a.agent_id, a.user_id, a.wallet_address, a.name, a.description, a.webhook_url,
               a.status, a.api_key_hash, a.created_at, a.updated_at, a.last_seen_at,
               s.agent_id as s_agent_id, s.game_type, s.games_played, s.games_won,
-              s.total_wagered_wei, s.total_won_wei, s.total_lost_wei,
-              s.net_profit_wei, s.win_rate, s.updated_at as s_updated_at
+              s.total_wagered_atomic, s.total_won_atomic, s.total_lost_atomic,
+              s.net_profit_atomic, s.win_rate, s.updated_at as s_updated_at
             FROM agent_stats s
             JOIN agents a ON a.agent_id = s.agent_id
             WHERE ($1::text IS NULL OR s.game_type = $1)
@@ -279,19 +279,19 @@ impl AgentStore for PgAgentStore {
                 updated_at: row.get("updated_at"),
                 last_seen_at: row.get("last_seen_at"),
             };
-            let total_wagered: sqlx::types::BigDecimal = row.get("total_wagered_wei");
-            let total_won: sqlx::types::BigDecimal = row.get("total_won_wei");
-            let total_lost: sqlx::types::BigDecimal = row.get("total_lost_wei");
-            let net_profit: sqlx::types::BigDecimal = row.get("net_profit_wei");
+            let total_wagered: sqlx::types::BigDecimal = row.get("total_wagered_atomic");
+            let total_won: sqlx::types::BigDecimal = row.get("total_won_atomic");
+            let total_lost: sqlx::types::BigDecimal = row.get("total_lost_atomic");
+            let net_profit: sqlx::types::BigDecimal = row.get("net_profit_atomic");
             let stats = AgentStats {
                 agent_id: row.get("s_agent_id"),
                 game_type: row.get("game_type"),
                 games_played: row.get("games_played"),
                 games_won: row.get("games_won"),
-                total_wagered_wei: total_wagered.to_string(),
-                total_won_wei: total_won.to_string(),
-                total_lost_wei: total_lost.to_string(),
-                net_profit_wei: net_profit.to_string(),
+                total_wagered_atomic: total_wagered.to_string(),
+                total_won_atomic: total_won.to_string(),
+                total_lost_atomic: total_lost.to_string(),
+                net_profit_atomic: net_profit.to_string(),
                 win_rate: row.get("win_rate"),
                 updated_at: row.get("s_updated_at"),
             };

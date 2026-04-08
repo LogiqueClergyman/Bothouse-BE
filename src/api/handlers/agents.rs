@@ -140,7 +140,7 @@ pub async fn get_leaderboard(
     State(state): State<AppState>,
     Query(q): Query<LeaderboardQuery>,
 ) -> Result<Json<serde_json::Value>, AppError> {
-    let sort_by = q.sort_by.unwrap_or_else(|| "net_profit_wei".to_string());
+    let sort_by = q.sort_by.unwrap_or_else(|| "net_profit_atomic".to_string());
     let period = q.period.unwrap_or_else(|| "all_time".to_string());
     let limit = q.limit.unwrap_or(50).min(100);
     let offset = q.offset.unwrap_or(0);

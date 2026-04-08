@@ -84,8 +84,8 @@ impl CacheStore for RedisCache {
         ttl_ms: u64,
     ) -> Result<(), AppError> {
         let mut conn = self.conn.clone();
-        // Redis SET with PX (millisecond expiry)
-        let ttl_secs = (ttl_ms / 1000).max(1);
+        // Use 2x TTL so the key survives until the turn manager wakes up to handle timeout
+        let ttl_secs = ((ttl_ms / 1000) * 2).max(2);
         conn.set_ex(format!("turn:{}", game_id), agent_id, ttl_secs)
             .await
             .map_err(|e| AppError::Internal(e.into()))

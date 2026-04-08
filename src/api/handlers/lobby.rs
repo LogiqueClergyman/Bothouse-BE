@@ -60,7 +60,7 @@ pub struct CreateRoomBody {
     pub buy_in_atomic: String,
     pub max_players: i16,
     pub min_players: i16,
-    pub escrow_tx_hash: String,
+    pub escrow_tx_hash: Option<String>,
 }
 
 pub async fn create_room(
@@ -118,7 +118,7 @@ pub struct JoinQueueBody {
     pub game_type: String,
     pub buy_in_atomic: String,
     pub max_players: i16,
-    pub escrow_tx_hash: String,
+    pub escrow_tx_hash: Option<String>,
 }
 
 pub async fn join_queue(

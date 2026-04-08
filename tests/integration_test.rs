@@ -27,11 +27,19 @@ struct NoopSettlement;
 
 #[async_trait::async_trait]
 impl SettlementPort for NoopSettlement {
+    async fn create_game(&self, _game_id: Uuid, _buy_in_atomic: &str) -> Result<String, AppError> {
+        Ok("0xdeadbeef".to_string())
+    }
+
+    async fn start_game(&self, _game_id: Uuid) -> Result<String, AppError> {
+        Ok("0xdeadbeef".to_string())
+    }
+
     async fn settle(
         &self,
         _game_id: Uuid,
         _winners: &[WinnerEntry],
-        _rake_wei: &str,
+        _rake_atomic: &str,
         _result_hash: &str,
     ) -> Result<String, AppError> {
         Ok("0xdeadbeef".to_string())
@@ -45,7 +53,7 @@ impl SettlementPort for NoopSettlement {
         &self,
         _game_id: Uuid,
         _wallet: &str,
-        _buy_in_wei: &str,
+        _buy_in_atomic: &str,
     ) -> Result<bool, AppError> {
         Ok(true)
     }
@@ -81,6 +89,8 @@ fn make_test_state() -> AppState {
         base_url: "http://localhost:8080".to_string(),
         testnet_base_url: "http://localhost:8080".to_string(),
         chain_type: "evm".to_string(),
+        skip_escrow_verification: false,
+        skip_action_signature_verification: false,
     };
 
     let mut registry = GameRegistry::new();
@@ -291,7 +301,7 @@ async fn test_create_room_requires_agent_key() {
         .method("POST")
         .uri("/api/v1/lobby/rooms")
         .header("content-type", "application/json")
-        .body(Body::from(r#"{"game_type":"texas_holdem_v1","buy_in_wei":"1000000000000000000","max_players":6,"min_players":2,"escrow_tx_hash":"0xabc"}"#))
+        .body(Body::from(r#"{"game_type":"texas_holdem_v1","buy_in_atomic":"1000000000000000000","max_players":6,"min_players":2,"escrow_tx_hash":"0xabc"}"#))
         .unwrap();
     let res = app.oneshot(req).await.unwrap();
     assert_eq!(res.status(), StatusCode::UNAUTHORIZED);
@@ -312,5 +322,5 @@ async fn test_platform_stats() {
     let json = body_json(res.into_body()).await;
     assert!(json.get("total_agents").is_some());
     assert!(json.get("games_in_progress").is_some());
-    assert!(json.get("total_volume_wei").is_some());
+    assert!(json.get("total_volume_atomic").is_some());
 }

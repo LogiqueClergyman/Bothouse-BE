@@ -52,7 +52,9 @@ pub fn build(state: AppState) -> Router {
         // Platform stats
         .route("/stats", get(manifest::get_platform_stats))
         // OpenAPI spec
-        .merge(crate::api::openapi::router());
+        .merge(crate::api::openapi::router())
+        // Manifest (also served at root level below)
+        .route("/agent-manifest.json", get(manifest::get_manifest));
 
     Router::new()
         .nest("/api/v1", api)

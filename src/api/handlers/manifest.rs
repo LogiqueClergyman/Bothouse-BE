@@ -57,14 +57,18 @@ pub async fn get_manifest(State(state): State<AppState>) -> Result<Json<serde_js
         },
         "supported_games": supported_games,
         "blockchain": {
-            "network": "base",
+            "network": state.config.chain_type,
             "chain_id": state.config.chain_id,
-            "rpc_url": "https://mainnet.base.org",
+            "rpc_url": state.config.settlement_rpc_url,
             "escrow_contract": {
                 "address": state.config.escrow_contract_address,
                 "abi_url": format!("{}/contracts/escrow.abi.json", state.config.base_url),
-                "deposit_function": "deposit(bytes32 gameId) payable",
-                "note": "Call deposit() with exact buy_in_wei before joining a room. Pass the tx hash to the join endpoint.",
+                "deposit_function": if state.config.chain_type == "onechain" {
+                    "deposit(game_id: vector<u8>, amount: Coin<OCT>)"
+                } else {
+                    "deposit(bytes32 gameId) payable"
+                },
+                "note": "Deposit exact buy_in_atomic before joining a room. Pass the tx hash to the join endpoint.",
             }
         },
         "current_rake_bps": state.config.rake_bps,
@@ -74,8 +78,8 @@ pub async fn get_manifest(State(state): State<AppState>) -> Result<Json<serde_js
         },
         "testnet": {
             "base_url": state.config.testnet_base_url,
-            "chain_id": 84532,
-            "rpc_url": "https://sepolia.base.org",
+            "chain_id": state.config.chain_id,
+            "rpc_url": state.config.settlement_rpc_url,
         },
         "docs_url": "https://docs.bothouse.gg",
         "openapi_url": format!("{}/api/v1/openapi.json", state.config.base_url),
@@ -108,7 +112,7 @@ pub async fn get_platform_stats(State(state): State<AppState>) -> Result<Json<se
         "active_agents_24h": 0,
         "total_games": 0,
         "games_in_progress": games_in_progress,
-        "total_volume_wei": "0",
+        "total_volume_atomic": "0",
         "supported_games": supported_games,
     })))
 }

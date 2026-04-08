@@ -35,6 +35,123 @@ fn parse_address(s: &str) -> Result<alloy::primitives::Address, AppError> {
 
 #[async_trait]
 impl SettlementPort for EthereumSettlement {
+    async fn create_game(&self, game_id: Uuid, buy_in_atomic: &str) -> Result<String, AppError> {
+        use alloy::network::EthereumWallet;
+        use alloy::providers::ProviderBuilder;
+        use alloy::signers::local::PrivateKeySigner;
+        use alloy::sol;
+        use alloy::primitives::{B256, U256};
+        use std::str::FromStr;
+
+        sol!(
+            #[allow(missing_docs)]
+            #[sol(rpc)]
+            BotTheHouseEscrow,
+            r#"[{
+                "name": "createGame",
+                "type": "function",
+                "inputs": [
+                    {"name": "gameId", "type": "bytes32"},
+                    {"name": "buyIn", "type": "uint256"}
+                ],
+                "outputs": []
+            }]"#
+        );
+
+        let signer: PrivateKeySigner = self
+            .private_key
+            .parse()
+            .map_err(|_| AppError::Internal(anyhow::anyhow!("Invalid private key")))?;
+        let wallet = EthereumWallet::from(signer);
+
+        let rpc_url = self
+            .rpc_url
+            .parse::<url::Url>()
+            .map_err(|e| AppError::Internal(e.into()))?;
+
+        let provider = ProviderBuilder::new()
+            .with_recommended_fillers()
+            .wallet(wallet)
+            .on_http(rpc_url);
+
+        let contract_addr = parse_address(&self.contract_address)?;
+        let contract = BotTheHouseEscrow::new(contract_addr, provider);
+
+        let game_id_bytes: B256 = {
+            let bytes = game_id.as_bytes();
+            let mut b = [0u8; 32];
+            b[..16].copy_from_slice(bytes);
+            B256::from(b)
+        };
+
+        let buy_in = U256::from_str(buy_in_atomic)
+            .map_err(|e| AppError::Internal(anyhow::anyhow!("Invalid buy_in_atomic: {}", e)))?;
+
+        let call = contract.createGame(game_id_bytes, buy_in);
+        let pending = call
+            .send()
+            .await
+            .map_err(|e| AppError::Internal(anyhow::anyhow!("createGame tx: {}", e)))?;
+
+        Ok(format!("{:#x}", pending.tx_hash()))
+    }
+
+    async fn start_game(&self, game_id: Uuid) -> Result<String, AppError> {
+        use alloy::network::EthereumWallet;
+        use alloy::providers::ProviderBuilder;
+        use alloy::signers::local::PrivateKeySigner;
+        use alloy::sol;
+        use alloy::primitives::B256;
+
+        sol!(
+            #[allow(missing_docs)]
+            #[sol(rpc)]
+            BotTheHouseEscrow,
+            r#"[{
+                "name": "startGame",
+                "type": "function",
+                "inputs": [
+                    {"name": "gameId", "type": "bytes32"}
+                ],
+                "outputs": []
+            }]"#
+        );
+
+        let signer: PrivateKeySigner = self
+            .private_key
+            .parse()
+            .map_err(|_| AppError::Internal(anyhow::anyhow!("Invalid private key")))?;
+        let wallet = EthereumWallet::from(signer);
+
+        let rpc_url = self
+            .rpc_url
+            .parse::<url::Url>()
+            .map_err(|e| AppError::Internal(e.into()))?;
+
+        let provider = ProviderBuilder::new()
+            .with_recommended_fillers()
+            .wallet(wallet)
+            .on_http(rpc_url);
+
+        let contract_addr = parse_address(&self.contract_address)?;
+        let contract = BotTheHouseEscrow::new(contract_addr, provider);
+
+        let game_id_bytes: B256 = {
+            let bytes = game_id.as_bytes();
+            let mut b = [0u8; 32];
+            b[..16].copy_from_slice(bytes);
+            B256::from(b)
+        };
+
+        let call = contract.startGame(game_id_bytes);
+        let pending = call
+            .send()
+            .await
+            .map_err(|e| AppError::Internal(anyhow::anyhow!("startGame tx: {}", e)))?;
+
+        Ok(format!("{:#x}", pending.tx_hash()))
+    }
+
     async fn settle(
         &self,
         game_id: Uuid,
