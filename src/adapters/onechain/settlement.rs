@@ -242,8 +242,9 @@ impl OneChainSettlement {
                         .and_then(|s| s.get("error"))
                         .and_then(|e| e.as_str())
                         .unwrap_or("unknown error");
+                    tracing::error!("Settlement transaction {} failed on-chain. Error: {}", digest_str, error_msg);
                     return Err(AppError::Internal(anyhow::anyhow!(
-                        "Transaction failed: {}", error_msg
+                        "Transaction failed: {} (digest: {})", error_msg, digest_str
                     )));
                 }
             }
@@ -312,7 +313,13 @@ impl SettlementPort for OneChainSettlement {
 
         // Build arguments for escrow::settle(cap, game, winners, payouts, rake, rake_recipient, result_hash)
         let winner_addrs: Vec<String> = winners.iter()
-            .map(|w| w.wallet_address.clone())
+            .map(|w| {
+                // Sui addresses must be exactly 32 bytes (64 hex chars), 0x-prefixed.
+                // Normalize: strip 0x, left-pad with zeroes to 64 chars, re-add 0x.
+                let hex = w.wallet_address.trim_start_matches("0x");
+                let padded = format!("{:0>64}", hex);
+                format!("0x{}", &padded[padded.len().saturating_sub(64)..])
+            })
             .collect();
         let payouts: Vec<String> = winners.iter()
             .map(|w| w.amount_won_atomic.clone())
@@ -325,8 +332,11 @@ impl SettlementPort for OneChainSettlement {
         let result_hash_bytes = hex::decode(result_hash_hex)
             .map_err(|e| AppError::Internal(anyhow::anyhow!("Invalid result_hash hex: {}", e)))?;
 
-        // Use unsafe_moveCall to build the transaction server-side
-        // This avoids BCS serialization on our end — the RPC node builds the PTB
+        let house_wallet_normalized = {
+            let h = self.house_wallet.trim_start_matches("0x");
+            format!("0x{:0>64}", h)
+        };
+
         let tx_result = self.rpc_call("unsafe_moveCall", vec![
             json!(sender),                                              // signer
             json!(self.package_id),                                     // package
@@ -337,9 +347,9 @@ impl SettlementPort for OneChainSettlement {
                 admin_cap_id,                                           // cap: &GameAdminCap
                 game_object_id,                                         // game: &mut Game
                 winner_addrs,                                           // winners: vector<address>
-                payouts,                                                // payouts: vector<u64>
-                rake,                                                   // rake: u64
-                self.house_wallet,                                      // rake_recipient: address
+                payouts,                                                // payouts: vector<u64> (already strings)
+                rake.to_string(),                                       // rake: u64 — must be a string for Sui JSON-RPC
+                house_wallet_normalized,                                // rake_recipient: address (normalized to 32 bytes)
                 result_hash_bytes,                                      // result_hash: vector<u8>
             ]),
             Value::Null,                                                // gas (auto)

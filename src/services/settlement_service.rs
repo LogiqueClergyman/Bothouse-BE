@@ -25,10 +25,18 @@ pub async fn initiate(result: &GameResult, state: &AppState) -> Result<(), AppEr
     // The settlement is tracked in-memory here
     // TODO: In a real system, this would use a SettlementStore port
 
+    // We must fetch the game instance to get the room_id.
+    // The on-chain Escrow object is instantiated using room_id, not game_id.
+    let game = state
+        .game_store
+        .get_game_by_id(result.game_id)
+        .await?
+        .ok_or(AppError::NotFound)?;
+
     match state
         .settlement
         .settle(
-            result.game_id,
+            game.room_id,
             &result.winners,
             &result.rake_atomic,
             &result.signed_result_hash,

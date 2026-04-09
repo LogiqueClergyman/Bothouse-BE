@@ -6,6 +6,7 @@ pub use super::DomainError;
 
 #[derive(sqlx::Type, Serialize, Deserialize, Debug, Clone, PartialEq)]
 #[sqlx(type_name = "game_status", rename_all = "lowercase")]
+#[serde(rename_all = "snake_case")]
 pub enum GameStatus {
     Waiting,
     #[sqlx(rename = "in_progress")]
@@ -16,6 +17,7 @@ pub enum GameStatus {
 
 #[derive(sqlx::Type, Serialize, Deserialize, Debug, Clone, PartialEq)]
 #[sqlx(type_name = "player_status", rename_all = "lowercase")]
+#[serde(rename_all = "snake_case")]
 pub enum PlayerStatus {
     Active,
     Folded,

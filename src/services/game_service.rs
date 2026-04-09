@@ -156,6 +156,11 @@ pub async fn submit_action(
         .get(&game.game_type)
         .ok_or_else(|| AppError::Internal(anyhow::anyhow!("Game type not found")))?;
 
+    let current_turn_number = game.current_state["turn_number"].as_i64().unwrap_or(0);
+    if req.turn_number != current_turn_number {
+        return Err(AppError::BadRequest(format!("TURN_NUMBER_MISMATCH: expected {}, got {}", current_turn_number, req.turn_number)));
+    }
+
     // Verify signature (can be skipped for local demos)
     if !state.config.skip_action_signature_verification {
         if state.config.chain_type == "onechain" {

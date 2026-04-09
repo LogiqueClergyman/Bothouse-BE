@@ -345,14 +345,23 @@ impl Game for TexasHoldemV1 {
         }
 
         let players = state["players"].as_array()?;
-        let pot: u128 = state["pot_atomic"].as_str().unwrap_or("0").parse().ok()?;
+
+        // The on-chain escrow holds buy_in * num_players (total deposited).
+        // The off-chain pot_atomic only tracks bets/blinds accumulated during play
+        // and does NOT match the on-chain total_pot.
+        // We must settle the full escrow amount to satisfy the Move contract:
+        //   assert!(sum(payouts) + rake == total_pot)
+        let buy_in: u128 = state["buy_in_atomic"].as_str().unwrap_or("0").parse().ok()?;
+        let num_players = players.len() as u128;
+        let pot: u128 = buy_in * num_players;
+
         let community_cards: Vec<String> = state["community_cards"]
             .as_array()?
             .iter()
             .filter_map(|c| c.as_str().map(String::from))
             .collect();
 
-        let rake = (pot as u128 * rake_bps as u128) / 10000;
+        let rake = (pot * rake_bps as u128) / 10000;
         let distributable = pot.saturating_sub(rake);
 
         // Evaluate winners
@@ -368,33 +377,41 @@ impl Game for TexasHoldemV1 {
             return None;
         }
 
-        // Simple case: evaluate best hand for each active player
-        let mut player_scores: Vec<(usize, u32)> = active_players
-            .iter()
-            .enumerate()
-            .filter_map(|(i, p)| {
-                let hole = p["hole_cards"].as_array()?;
-                let hole_cards: Vec<String> = hole
-                    .iter()
-                    .filter_map(|c| c.as_str().map(String::from))
-                    .collect();
-                if hole_cards.len() < 2 {
-                    return None;
-                }
-                let mut all_cards = hole_cards;
-                all_cards.extend(community_cards.clone());
-                let eval = evaluate_best_hand(&all_cards);
-                Some((i, eval.score))
-            })
-            .collect();
-
-        player_scores.sort_by(|a, b| b.1.cmp(&a.1));
-        let top_score = player_scores.first()?.1;
-        let winners: Vec<usize> = player_scores
-            .iter()
-            .filter(|(_, s)| *s == top_score)
-            .map(|(i, _)| *i)
-            .collect();
+        let winners: Vec<usize> = if active_players.len() == 1 {
+            vec![0]
+        } else {
+            // Simple case: evaluate best hand for each active player
+            let mut player_scores: Vec<(usize, u32)> = active_players
+                .iter()
+                .enumerate()
+                .filter_map(|(i, p)| {
+                    let hole = p["hole_cards"].as_array()?;
+                    let hole_cards: Vec<String> = hole
+                        .iter()
+                        .filter_map(|c| c.as_str().map(String::from))
+                        .collect();
+                    if hole_cards.len() < 2 {
+                        return None;
+                    }
+                    let mut all_cards = hole_cards;
+                    all_cards.extend(community_cards.clone());
+                    let eval = evaluate_best_hand(&all_cards);
+                    Some((i, eval.score))
+                })
+                .collect();
+    
+            player_scores.sort_by(|a, b| b.1.cmp(&a.1));
+            // Ensure we have at least one score
+            if player_scores.is_empty() {
+                return None;
+            }
+            let top_score = player_scores.first().unwrap().1;
+            player_scores
+                .iter()
+                .filter(|(_, s)| *s == top_score)
+                .map(|(i, _)| *i)
+                .collect()
+        };
 
         let per_winner = distributable / winners.len() as u128;
         let remainder = distributable - per_winner * winners.len() as u128;

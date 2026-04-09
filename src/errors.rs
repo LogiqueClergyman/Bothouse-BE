@@ -17,7 +17,7 @@ pub enum AppError {
     BadRequest(String),
     #[error("Conflict: {0}")]
     Conflict(String),
-    #[error("Internal error")]
+    #[error("Internal error: {0}")]
     Internal(#[from] anyhow::Error),
     #[error("Domain error: {0}")]
     Domain(#[from] DomainError),
